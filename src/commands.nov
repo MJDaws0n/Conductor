@@ -1,0 +1,262 @@
+module conductor_commands;
+
+import ../lib/std std;
+import ../lib/file_io file_io;
+import ../lib/env env;
+
+import ui;
+import storage;
+import ai_api;
+
+fn arg_at(argv: u64, index: i32) -> str {
+    return std.argv_get(argv, index);
+}
+
+fn has_arg(argc: i32, argv: u64, name: str) -> bool {
+    let i: i32 = 1;
+    while (i < argc) {
+        if (arg_at(argv, i) == name) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn option_value(argc: i32, argv: u64, name: str, fallback: str) -> str {
+    let i: i32 = 1;
+    while (i < argc - 1) {
+        if (arg_at(argv, i) == name) {
+            return arg_at(argv, i + 1);
+        }
+        i = i + 1;
+    }
+    return fallback;
+}
+
+fn collect_message(argc: i32, argv: u64, start: i32) -> str {
+    let out: str = "";
+    let i: i32 = start;
+    while (i < argc) {
+        let a: str = arg_at(argv, i);
+        if (std.starts_with(a, "--")) {
+            i = i + 2;
+        } else {
+            if (std.len(out) > 0) { out = out + " "; }
+            out = out + a;
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+fn command_run(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    let model: str = option_value(argc, argv, "--model", "");
+    let agent: str = option_value(argc, argv, "--agent", "");
+    let file_path: str = option_value(argc, argv, "--file", "");
+    let message: str = collect_message(argc, argv, 2);
+    if (std.len(file_path) > 0) {
+        if (!file_io.file_exists(file_path)) {
+            ui_error("File not found: " + file_path);
+            return 1;
+        }
+        message = message + "\n\nAttached file " + file_path + ":\n" + file_io.read_file(file_path);
+    }
+    if (std.len(std.trim(message)) == 0) {
+        message = std.input("Message: ", 4096);
+    }
+    let response: str = ai_placeholder_response(message, model, agent);
+    ui_logo();
+    std.print("");
+    std.print(response);
+    let title: str = message;
+    if (std.len(title) > 48) {
+        title = std.substr_len(title, 0, 48);
+    }
+    let id: str = storage_record_session(title, message, response);
+    std.print("");
+    ui_kv("session", id);
+    return 0;
+}
+
+fn command_models(argc: i32, argv: u64) -> i32 {
+    let verbose: bool = has_arg(argc, argv, "--verbose");
+    let provider: str = "";
+    if (argc >= 3 && !std.starts_with(arg_at(argv, 2), "--")) {
+        provider = arg_at(argv, 2);
+    }
+    let rc: i32 = ai_print_models(provider, verbose);
+    if (rc != 0) {
+        ui_error("Provider not found: " + provider);
+    }
+    return rc;
+}
+
+fn command_providers() -> i32 {
+    ai_print_providers();
+    return 0;
+}
+
+fn command_agent(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    if (argc >= 3 && arg_at(argv, 2) == "create") {
+        let name: str = option_value(argc, argv, "--name", "conductor-agent");
+        let desc: str = option_value(argc, argv, "--description", "Placeholder Conductor agent");
+        let dir: str = file_io.path_join(storage_root(), "agents");
+        file_io.mkdirp(dir);
+        let path: str = file_io.path_join(dir, name + ".txt");
+        file_io.write_file(path, "name=" + name + "\ndescription=" + desc + "\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task\n");
+        ui_ok("Agent created at " + path);
+        return 0;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "list") {
+        std.print("conductor-agent | all | placeholder default agent");
+        return 0;
+    }
+    ui_error("Usage: conductor agent create|list");
+    return 1;
+}
+
+fn command_mcp(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    let path: str = file_io.path_join(storage_root(), "mcp.txt");
+    if (!file_io.file_exists(path)) {
+        file_io.write_file(path, "");
+    }
+    if (argc >= 3 && (arg_at(argv, 2) == "list" || arg_at(argv, 2) == "ls")) {
+        let content: str = file_io.read_file(path);
+        if (std.len(std.trim(content)) == 0) {
+            std.print("No MCP servers configured.");
+            return 0;
+        }
+        std.print(content);
+        return 0;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "add") {
+        let name: str = option_value(argc, argv, "--name", "server");
+        let url: str = option_value(argc, argv, "--url", "stdio://placeholder");
+        file_io.file_append(path, name + " | " + url + " | placeholder\n");
+        ui_ok("MCP server added: " + name);
+        return 0;
+    }
+    ui_error("Usage: conductor mcp list|add --name NAME --url URL");
+    return 1;
+}
+
+fn command_session(argc: i32, argv: u64) -> i32 {
+    if (argc >= 3 && arg_at(argv, 2) == "list") {
+        storage_print_sessions();
+        return 0;
+    }
+    if (argc >= 4 && arg_at(argv, 2) == "delete") {
+        let rc: i32 = storage_delete_session(arg_at(argv, 3));
+        if (rc == 0) {
+            ui_ok("Session deleted: " + arg_at(argv, 3));
+        } else {
+            ui_error("Session not found: " + arg_at(argv, 3));
+        }
+        return rc;
+    }
+    ui_error("Usage: conductor session list|delete <sessionID>");
+    return 1;
+}
+
+fn command_config(argc: i32, argv: u64) -> i32 {
+    if (argc >= 3 && arg_at(argv, 2) == "path") {
+        storage_init();
+        std.print(storage_config_path());
+        return 0;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "check") {
+        let rc: i32 = storage_config_check();
+        if (rc == 0) {
+            ui_ok("No config warnings.");
+        } else {
+            ui_error("Config must contain provider= and model= entries.");
+        }
+        return rc;
+    }
+    storage_print_config();
+    return 0;
+}
+
+fn command_stats() -> i32 {
+    storage_print_stats();
+    return 0;
+}
+
+fn command_export(argc: i32, argv: u64) -> i32 {
+    let path: str = "conductor-sessions.txt";
+    if (argc >= 3) {
+        path = arg_at(argv, 2);
+    }
+    let rc: i32 = storage_export(path);
+    if (rc == 0) {
+        ui_ok("Exported sessions to " + path);
+    } else {
+        ui_error("Failed to export sessions to " + path);
+    }
+    return rc;
+}
+
+fn command_import(argc: i32, argv: u64) -> i32 {
+    if (argc < 3) {
+        ui_error("Usage: conductor import <file>");
+        return 1;
+    }
+    let rc: i32 = storage_import(arg_at(argv, 2));
+    if (rc == 0) {
+        ui_ok("Imported sessions from " + arg_at(argv, 2));
+    } else {
+        ui_error("File not found: " + arg_at(argv, 2));
+    }
+    return rc;
+}
+
+fn command_serve(argc: i32, argv: u64) -> i32 {
+    let port: str = option_value(argc, argv, "--port", "4096");
+    ui_warn("Headless server is a placeholder until Novus HTTP/runtime support is expanded.");
+    std.print("conductor server placeholder listening on http://127.0.0.1:" + port);
+    return 0;
+}
+
+fn command_generate() -> i32 {
+    std.print(ai_openapi_placeholder());
+    return 0;
+}
+
+fn command_remote() -> i32 {
+    ui_warn("Remote/cloud session support is intentionally deferred behind the placeholder AI API controller.");
+    return 0;
+}
+
+fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
+    if (argc <= 1) {
+        ui_help();
+        return 0;
+    }
+    let cmd: str = arg_at(argv, 1);
+    if (cmd == "--help" || cmd == "-h" || cmd == "help") {
+        ui_help();
+        return 0;
+    }
+    if (cmd == "--version" || cmd == "-v" || cmd == "version") {
+        ui_version();
+        return 0;
+    }
+    if (cmd == "run") { return command_run(argc, argv); }
+    if (cmd == "models") { return command_models(argc, argv); }
+    if (cmd == "providers") { return command_providers(); }
+    if (cmd == "agent") { return command_agent(argc, argv); }
+    if (cmd == "mcp") { return command_mcp(argc, argv); }
+    if (cmd == "session") { return command_session(argc, argv); }
+    if (cmd == "config") { return command_config(argc, argv); }
+    if (cmd == "stats") { return command_stats(); }
+    if (cmd == "export") { return command_export(argc, argv); }
+    if (cmd == "import") { return command_import(argc, argv); }
+    if (cmd == "serve") { return command_serve(argc, argv); }
+    if (cmd == "generate") { return command_generate(); }
+    if (cmd == "remote" || cmd == "attach") { return command_remote(); }
+    ui_error("Unknown command: " + cmd);
+    std.print("Run 'conductor help' for usage.");
+    return 1;
+}

@@ -1,0 +1,79 @@
+module conductor_ui;
+
+import ../lib/std std;
+
+fn conductor_version() -> str {
+    return "0.1.0";
+}
+
+fn ui_style_dim() -> str { return ""; }
+fn ui_style_bold() -> str { return ""; }
+fn ui_style_reset() -> str { return ""; }
+fn ui_style_green() -> str { return ""; }
+fn ui_style_yellow() -> str { return ""; }
+fn ui_style_blue() -> str { return ""; }
+fn ui_style_red() -> str { return ""; }
+
+fn ui_logo() -> void {
+    std.print("  ____                _            _             ");
+    std.print(" / ___|___  _ __   __| |_   _  ___| |_ ___  _ __ ");
+    std.print("| |   / _ \\| '_ \\ / _` | | | |/ __| __/ _ \\| '__|");
+    std.print("| |__| (_) | | | | (_| | |_| | (__| || (_) | |   ");
+    std.print(" \\____\\___/|_| |_|\\__,_|\\__,_|\\___|\\__\\___/|_|   ");
+}
+
+fn ui_header(title: str) -> void {
+    std.print(ui_style_blue() + title + ui_style_reset());
+}
+
+fn ui_ok(message: str) -> void {
+    std.print(ui_style_green() + "OK: " + ui_style_reset() + message);
+}
+
+fn ui_warn(message: str) -> void {
+    std.print(ui_style_yellow() + "Warning: " + ui_style_reset() + message);
+}
+
+fn ui_error(message: str) -> void {
+    std.print(ui_style_red() + "Error: " + ui_style_reset() + message);
+}
+
+fn ui_kv(key: str, value: str) -> void {
+    std.print(key + ": " + value);
+}
+
+fn ui_help() -> void {
+    ui_logo();
+    std.print("");
+    std.print("Conductor " + conductor_version() + " - Novus-native AI development CLI");
+    std.print("");
+    std.print("Usage:");
+    std.print("  conductor <command> [options]");
+    std.print("");
+    std.print("Core commands:");
+    std.print("  run [message..]                 Run a placeholder AI coding session");
+    std.print("  models [provider] [--verbose]   List available placeholder models");
+    std.print("  providers                       List configured placeholder providers");
+    std.print("  agent create|list               Manage agent presets");
+    std.print("  mcp list|add                    Manage MCP server placeholders");
+    std.print("  session list|delete             Manage local sessions");
+    std.print("  config check|path               Inspect Conductor configuration");
+    std.print("  stats                           Show local usage statistics");
+    std.print("  import <file>                   Import a session transcript");
+    std.print("  export [file]                   Export local session index");
+    std.print("  serve [--port N]                Start placeholder headless server notice");
+    std.print("  generate                        Print placeholder API/OpenAPI schema");
+    std.print("  version                         Print version");
+    std.print("");
+    std.print("Global options:");
+    std.print("  --help, -h                      Show help");
+    std.print("  --model provider/model          Select model for run");
+    std.print("  --agent name                    Select agent preset for run");
+    std.print("  --file path                     Attach file content to prompt");
+    std.print("  --dir path                      Run command from directory when supported");
+    std.print("  --format json                   Emit simple JSON where supported");
+}
+
+fn ui_version() -> void {
+    std.print("Conductor " + conductor_version());
+}

@@ -1,0 +1,112 @@
+module conductor_ai_api;
+
+import ../lib/std std;
+
+fn ai_default_provider() -> str {
+    return "openrouter-placeholder";
+}
+
+fn ai_default_model() -> str {
+    return "openrouter-placeholder/conductor-dev";
+}
+
+fn ai_provider_count() -> i32 {
+    return 3;
+}
+
+fn ai_provider_at(index: i32) -> str {
+    if (index == 0) { return "openrouter-placeholder"; }
+    if (index == 1) { return "local-placeholder"; }
+    if (index == 2) { return "kilo-compatible-placeholder"; }
+    return "";
+}
+
+fn ai_model_count(provider: str) -> i32 {
+    if (provider == "local-placeholder") { return 2; }
+    if (provider == "kilo-compatible-placeholder") { return 2; }
+    return 3;
+}
+
+fn ai_model_at(provider: str, index: i32) -> str {
+    if (provider == "local-placeholder") {
+        if (index == 0) { return "local-placeholder/conductor-fast"; }
+        if (index == 1) { return "local-placeholder/conductor-deep"; }
+        return "";
+    }
+    if (provider == "kilo-compatible-placeholder") {
+        if (index == 0) { return "kilo-compatible-placeholder/kilo-default"; }
+        if (index == 1) { return "kilo-compatible-placeholder/kilo-reasoning"; }
+        return "";
+    }
+    if (index == 0) { return "openrouter-placeholder/conductor-dev"; }
+    if (index == 1) { return "openrouter-placeholder/conductor-coder"; }
+    if (index == 2) { return "openrouter-placeholder/conductor-reasoning"; }
+    return "";
+}
+
+fn ai_provider_exists(provider: str) -> bool {
+    let i: i32 = 0;
+    while (i < ai_provider_count()) {
+        if (ai_provider_at(i) == provider) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn ai_print_providers() -> void {
+    let i: i32 = 0;
+    while (i < ai_provider_count()) {
+        let provider: str = ai_provider_at(i);
+        std.print(provider);
+        i = i + 1;
+    }
+}
+
+fn ai_print_models(provider: str, verbose: bool) -> i32 {
+    if (std.len(provider) > 0 && !ai_provider_exists(provider)) {
+        return 1;
+    }
+    if (std.len(provider) > 0) {
+        let i: i32 = 0;
+        while (i < ai_model_count(provider)) {
+            let model: str = ai_model_at(provider, i);
+            std.print(model);
+            if (verbose) {
+                std.print("  provider=" + provider + " context=placeholder cost=0 tools=true");
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    let p: i32 = 0;
+    while (p < ai_provider_count()) {
+        let current: str = ai_provider_at(p);
+        let m: i32 = 0;
+        while (m < ai_model_count(current)) {
+            let model: str = ai_model_at(current, m);
+            std.print(model);
+            if (verbose) {
+                std.print("  provider=" + current + " context=placeholder cost=0 tools=true");
+            }
+            m = m + 1;
+        }
+        p = p + 1;
+    }
+    return 0;
+}
+
+fn ai_placeholder_response(prompt: str, model: str, agent: str) -> str {
+    let chosen_model: str = model;
+    if (std.len(chosen_model) == 0) {
+        chosen_model = ai_default_model();
+    }
+    let chosen_agent: str = agent;
+    if (std.len(chosen_agent) == 0) {
+        chosen_agent = "conductor";
+    }
+    return "Placeholder AI response from " + chosen_model + " using agent '" + chosen_agent + "'. Prompt received: " + prompt;
+}
+
+fn ai_openapi_placeholder() -> str {
+    return "{\n  \"openapi\": \"3.1.0\",\n  \"info\": { \"title\": \"Conductor API\", \"version\": \"0.1.0\" },\n  \"paths\": {\n    \"/ai/run\": { \"post\": { \"summary\": \"Placeholder AI run endpoint\" } },\n    \"/models\": { \"get\": { \"summary\": \"List placeholder models\" } },\n    \"/providers\": { \"get\": { \"summary\": \"List placeholder providers\" } }\n  }\n}";
+}

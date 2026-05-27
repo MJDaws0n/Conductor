@@ -1,0 +1,12 @@
+module conductor;
+
+import lib/std std;
+
+import src/ui;
+import src/storage;
+import src/ai_api;
+import src/commands;
+
+fn main(argc: i32, argv: u64) -> i32 {
+    return conductor_dispatch(argc, argv);
+}

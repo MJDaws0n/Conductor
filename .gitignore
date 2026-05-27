@@ -1,0 +1,5 @@
+build/
+lib/
+.conductor/
+conductor-sessions.txt
+.DS_Store

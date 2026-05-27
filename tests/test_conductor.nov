@@ -1,0 +1,28 @@
+module conductor_tests;
+
+import ../lib/std std;
+
+import ../src/ai_api;
+
+fn assert_true(ok: bool, name: str) -> i32 {
+    if (!ok) {
+        std.print("FAIL " + name);
+        return 1;
+    }
+    std.print("PASS " + name);
+    return 0;
+}
+
+fn main() -> i32 {
+    let failures: i32 = 0;
+    failures = failures + assert_true(ai_provider_exists("openrouter-placeholder"), "default provider exists");
+    failures = failures + assert_true(ai_model_count("openrouter-placeholder") == 3, "default model count");
+    failures = failures + assert_true(std.contains(ai_placeholder_response("hello", "", ""), "hello"), "placeholder response echoes prompt");
+    failures = failures + assert_true(std.contains(ai_openapi_placeholder(), "Conductor API"), "openapi placeholder title");
+    if (failures == 0) {
+        std.print("All Conductor Novus tests passed.");
+        return 0;
+    }
+    std.print("Conductor tests failed: " + std.to_str(failures));
+    return 1;
+}
