@@ -81,6 +81,11 @@ fn storage_init() -> void {
         file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\n");
     }
     storage_permissions_bootstrap();
+    // Ensure providers exist and set default active provider if missing
+    storage_providers_init();
+    if (!file_io.file_exists(storage_active_provider_path())) {
+        file_io.write_file(storage_active_provider_path(), "openrouter");
+    }
 }
 
 fn storage_new_session_id() -> str {
@@ -437,7 +442,12 @@ fn storage_provider_path(name: str) -> str {
 fn storage_providers_init() -> void {
     file_io.mkdirp(storage_providers_dir());
     if (!file_io.file_exists(storage_provider_index_path())) {
-        file_io.write_file(storage_provider_index_path(), "openrouter-placeholder | env:OPENROUTER_API_KEY | default\n");
+        file_io.write_file(storage_provider_index_path(), "openrouter | env:OPENROUTER_API_KEY | default\n");
+    }
+    // create provider file for default if missing
+    let ppath: str = storage_provider_path("openrouter");
+    if (!file_io.file_exists(ppath)) {
+        file_io.write_file(ppath, "name=openrouter\nkind=openrouter\nconnection=env:OPENROUTER_API_KEY\n");
     }
 }
 
@@ -468,6 +478,23 @@ fn storage_provider_get(name: str) -> str {
     return file_io.read_file(storage_provider_path(name));
 }
 
+fn storage_active_provider_path() -> str {
+    return file_io.path_join(storage_root(), "active-provider.txt");
+}
+
+fn storage_get_active_provider() -> str {
+    storage_init();
+    if (!file_io.file_exists(storage_active_provider_path())) { return ""; }
+    return std.trim(file_io.read_file(storage_active_provider_path()));
+}
+
+fn storage_set_active_provider(name: str) -> i32 {
+    storage_init();
+    if (!storage_provider_exists(name)) { return 1; }
+    file_io.write_file(storage_active_provider_path(), name);
+    return 0;
+}
+
 fn storage_provider_delete(name: str) -> i32 {
     storage_providers_init();
     if (!file_io.file_exists(storage_provider_path(name))) { return 1; }
@@ -484,6 +511,12 @@ fn storage_provider_delete(name: str) -> i32 {
         if (pname != name) { new_index = new_index + lt + "\n"; }
     }
     file_io.write_file(storage_provider_index_path(), new_index);
+    // If deleted provider was active, unset active provider
+    let active_path: str = file_io.path_join(storage_root(), "active-provider.txt");
+    if (file_io.file_exists(active_path)) {
+        let cur: str = std.trim(file_io.read_file(active_path));
+        if (cur == name) { file_io.file_delete(active_path); }
+    }
     return 0;
 }
 

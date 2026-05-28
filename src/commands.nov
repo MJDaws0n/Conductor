@@ -107,16 +107,47 @@ fn command_models(argc: i32, argv: u64) -> i32 {
     return rc;
 }
 
-fn command_providers() -> i32 {
+fn command_providers(argc: i32, argv: u64) -> i32 {
     storage_init();
-    if (!storage_provider_exists("openrouter")) {
-        // create default provider pointing at env var
-        storage_provider_create("openrouter", "openrouter", "env:OPENROUTER_API_KEY");
+    storage_providers_init();
+    if (argc >= 3 && arg_at(argv, 2) == "list") {
+        std.print(storage_provider_list());
+        return 0;
     }
-    if (has_arg(argc, argv, "add")) {
-        // not supported in this invocation path; fall back
+    if (argc >= 3 && arg_at(argv, 2) == "add") {
+        let name: str = option_value(argc, argv, "--name", "");
+        let kind: str = option_value(argc, argv, "--kind", "openrouter");
+        let conn: str = option_value(argc, argv, "--conn", "env:OPENROUTER_API_KEY");
+        if (std.len(std.trim(name)) == 0) { ui_error("Usage: conductor providers add --name NAME --kind KIND --conn CONNECTION"); return 1; }
+        let rc: i32 = storage_provider_create(name, kind, conn);
+        if (rc == 0) { ui_ok("Provider added: " + name); return 0; }
+        if (rc == 2) { ui_error("Provider already exists: " + name); return 1; }
+        ui_error("Failed to add provider.");
+        return 1;
     }
-    ai_print_providers();
+    if (argc >= 3 && arg_at(argv, 2) == "show") {
+        if (argc < 4) { ui_error("Usage: conductor providers show <name>"); return 1; }
+        let cfg: str = storage_provider_get(arg_at(argv, 3));
+        if (std.len(std.trim(cfg)) == 0) { ui_error("Provider not found: " + arg_at(argv, 3)); return 1; }
+        std.print(cfg);
+        return 0;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "use") {
+        if (argc < 4) { ui_error("Usage: conductor providers use <name>"); return 1; }
+        let rc: i32 = storage_set_active_provider(arg_at(argv, 3));
+        if (rc == 0) { ui_ok("Active provider: " + arg_at(argv, 3)); return 0; }
+        ui_error("Provider not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "delete") {
+        if (argc < 4) { ui_error("Usage: conductor providers delete <name>"); return 1; }
+        let rc: i32 = storage_provider_delete(arg_at(argv, 3));
+        if (rc == 0) { ui_ok("Provider deleted: " + arg_at(argv, 3)); return 0; }
+        ui_error("Provider not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    // default: list
+    std.print(storage_provider_list());
     return 0;
 }
 
@@ -465,7 +496,49 @@ fn shell_handle_command(line: str) -> bool {
         storage_print_sessions();
         return true;
     }
-    if (cmd == "providers") { ai_print_providers(); return true; }
+    if (cmd == "providers") {
+        if (std.len(rest) == 0) { std.print(storage_provider_list()); return true; }
+        let sub: str = first_word(rest);
+        let arg: str = rest_words(rest);
+        if (sub == "list") { std.print(storage_provider_list()); return true; }
+        if (sub == "use") {
+            let name: str = first_word(arg);
+            if (std.len(name) == 0) { ui_error("Usage: /providers use NAME"); return true; }
+            let rc: i32 = storage_set_active_provider(name);
+            if (rc == 0) { ui_ok("Active provider: " + name); } else { ui_error("Provider not found: " + name); }
+            return true;
+        }
+        if (sub == "show") {
+            let name: str = first_word(arg);
+            if (std.len(name) == 0) { ui_error("Usage: /providers show NAME"); return true; }
+            let cfg: str = storage_provider_get(name);
+            if (std.len(std.trim(cfg)) == 0) { ui_error("Provider not found: " + name); return true; }
+            std.print(cfg);
+            return true;
+        }
+        if (sub == "add") {
+            // simple form: /providers add NAME KIND CONN
+            let name: str = first_word(arg);
+            let rest2: str = rest_words(arg);
+            let kind: str = first_word(rest2);
+            let conn: str = rest_words(rest2);
+            if (std.len(name) == 0) { ui_error("Usage: /providers add NAME [KIND] [CONN]"); return true; }
+            if (std.len(kind) == 0) { kind = "openrouter"; }
+            if (std.len(conn) == 0) { conn = "env:OPENROUTER_API_KEY"; }
+            let rc: i32 = storage_provider_create(name, kind, conn);
+            if (rc == 0) { ui_ok("Provider added: " + name); } else { ui_error("Could not add provider: " + name); }
+            return true;
+        }
+        if (sub == "delete") {
+            let name: str = first_word(arg);
+            if (std.len(name) == 0) { ui_error("Usage: /providers delete NAME"); return true; }
+            let rc: i32 = storage_provider_delete(name);
+            if (rc == 0) { ui_ok("Provider deleted: " + name); } else { ui_error("Provider not found: " + name); }
+            return true;
+        }
+        std.print(storage_provider_list());
+        return true;
+    }
     if (cmd == "models") { ai_print_models(first_word(rest), false); return true; }
     if (cmd == "permissions" || cmd == "permission") { shell_permission_command(rest); return true; }
     if (cmd == "agent") { shell_agent_command(rest); return true; }

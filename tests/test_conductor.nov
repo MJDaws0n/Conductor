@@ -46,6 +46,21 @@ fn main() -> i32 {
     let del_rc: i32 = storage_delete_session(sid2);
     failures = failures + assert_true(del_rc == 1, "cleanup removed empty session");
 
+    // Providers tests: create provider backed by file and mock run
+    let keypath: str = file_io.path_join(storage_providers_dir(), "key-mock.txt");
+    file_io.write_file(keypath, "MOCK");
+    if (storage_provider_exists("openrouter-test")) { storage_provider_delete("openrouter-test"); }
+    let p_rc: i32 = storage_provider_create("openrouter-test", "openrouter", "file:" + keypath);
+    failures = failures + assert_true((p_rc == 0) || (p_rc == 2), "provider create file scheme");
+    let got: str = provider_get_api_key("openrouter-test");
+    failures = failures + assert_true(std.len(std.trim(got)) > 0, "provider_get_api_key returns value");
+    let use_rc: i32 = storage_set_active_provider("openrouter-test");
+    failures = failures + assert_true(use_rc == 0, "set active provider");
+    failures = failures + assert_true(storage_get_active_provider() == "openrouter-test", "active provider set");
+    let run_out: str = ai_run("hello world", "", "openrouter-test");
+    std.print("AI RUN OUT: " + run_out);
+    failures = failures + assert_true(std.contains(run_out, "mocked"), "ai_run returns mocked response when key is MOCK");
+
     if (failures == 0) {
         std.print("All Conductor Novus tests passed.");
         return 0;

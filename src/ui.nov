@@ -54,7 +54,7 @@ fn ui_help() -> void {
     std.print("  chat                            Open the interactive terminal agent shell");
     std.print("  run [message..]                 Run a placeholder AI coding session");
     std.print("  models [provider] [--verbose]   List available placeholder models");
-    std.print("  providers                       List configured placeholder providers");
+    std.print("  providers                       Manage configured AI providers (add/list/show/use/delete)");
     std.print("  agent create|list|use|show      Manage agent presets");
     std.print("  permission list|allow|deny|ask  Manage tool permissions");
     std.print("  mcp list|add                    Manage MCP server placeholders");

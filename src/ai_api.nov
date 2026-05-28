@@ -3,6 +3,7 @@ module conductor_ai_api;
 import ../lib/std std;
 import ../lib/env env;
 import ../lib/process process;
+import ../lib/file_io file_io;
 import storage;
 
 fn ai_default_provider() -> str {
@@ -51,11 +52,55 @@ fn ai_model_at(provider: str, index: i32) -> str {
     return "";
 }
 
-fn ai_openrouter_request(prompt: str, model: str) -> str {
-    // Use environment variable OPENROUTER_API_KEY to authenticate
-    let key: str = env.getenv("OPENROUTER_API_KEY");
+fn provider_get_api_key(provider: str) -> str {
+    storage_init();
+    let cfg: str = storage_provider_get(provider);
+    if (std.len(std.trim(cfg)) == 0) { return ""; }
+    // parse connection line
+    let conn_line: str = "";
+    let rest: str = cfg;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (std.starts_with(line, "connection=")) { conn_line = std.trim(std.substr(line, 11)); break; }
+    }
+    if (std.len(std.trim(conn_line)) == 0) { return ""; }
+    if (std.starts_with(conn_line, "env:")) {
+        let var: str = std.trim(std.substr(conn_line, 4));
+        return std.trim(env.getenv(var));
+    }
+    if (std.starts_with(conn_line, "file:")) {
+        let path: str = std.trim(std.substr(conn_line, 5));
+        return std.trim(file_io.read_file(path));
+    }
+    // unknown scheme - return raw
+    return conn_line;
+}
+
+fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
+    // Use provider_get_api_key to authenticate
+    let key: str = provider_get_api_key(provider);
     if (std.len(std.trim(key)) == 0) {
-        return "Error: OPENROUTER_API_KEY not set.";
+        // fallback to env var
+        key = env.getenv("OPENROUTER_API_KEY");
+    }
+    if (std.len(std.trim(key)) == 0) {
+        return "Error: OPENROUTER_API_KEY not set (or provider connection).";
+    }
+    // treat key value "MOCK" as a mock trigger
+    let ktrim: str = std.trim(key);
+    if (std.len(ktrim) > 0) {
+        if (std.lower(ktrim) == "mock") {
+            return "{\"mocked\":true, \"prompt\": \"" + std.replace(prompt, "\"", "\\\"") + "\"}";
+        }
+    }
+    // support mock mode via env var
+    let mockenv: str = std.trim(env.getenv("OPENROUTER_MOCK"));
+    if (std.len(mockenv) > 0) {
+        let ml: str = std.lower(mockenv);
+        if (ml == "1" || ml == "true" || ml == "mock") {
+            return "{\"mocked\":true, \"prompt\": \"" + std.replace(prompt, "\"", "\\\"") + "\"}";
+        }
     }
     let url: str = "https://api.openrouter.ai/v1/requests";
     let payload: str = "{\"model\": \"" + model + "\", \"input\": \"" + std.replace(prompt, "\"", "\\\"") + "\" }";
@@ -67,15 +112,67 @@ fn ai_openrouter_request(prompt: str, model: str) -> str {
 
 fn ai_run(prompt: str, model: str, provider: str) -> str {
     if (std.len(std.trim(provider)) == 0) { provider = ai_default_provider(); }
-    if (provider == "openrouter") {
+    // If provider name directly maps to openrouter or the provider file indicates kind=openrouter, use openrouter transport
+    let use_openrouter: bool = false;
+    if (provider == "openrouter" || provider == "openrouter-placeholder") { use_openrouter = true; }
+    else {
+        let cfg: str = storage_provider_get(provider);
+        if (std.len(std.trim(cfg)) > 0) {
+            // parse lines for kind=
+            let rest: str = cfg;
+            while (std.len(std.trim(rest)) > 0) {
+                let line: str = std.split_first(rest, "\n");
+                rest = std.split_rest(rest, "\n");
+                if (std.starts_with(std.trim(line), "kind=")) {
+                    let k: str = std.trim(std.substr(line, 5));
+                    if (std.lower(k) == "openrouter") { use_openrouter = true; break; }
+                }
+            }
+        }
+    }
+    if (use_openrouter) {
         if (std.len(std.trim(model)) == 0) { model = ai_model_at("openrouter", 0); }
-        return ai_openrouter_request(prompt, model);
+        return ai_openrouter_request(prompt, model, provider);
     }
     return ai_placeholder_response(prompt, model, "");
 }
 
 fn ai_placeholder_response(prompt: str, model: str, agent: str) -> str {
     return "Placeholder AI response from " + model + " using agent '" + agent + "'. Prompt received: " + prompt;
+}
+
+fn ai_print_models(provider: str, verbose: bool) -> i32 {
+    if (std.len(std.trim(provider)) == 0) { provider = ai_default_provider(); }
+    // Determine provider kind similar to ai_run
+    let is_openrouter: bool = false;
+    if (provider == "openrouter" || provider == "openrouter-placeholder") { is_openrouter = true; }
+    else {
+        let cfg: str = storage_provider_get(provider);
+        if (std.len(std.trim(cfg)) > 0) {
+            let rest: str = cfg;
+            while (std.len(std.trim(rest)) > 0) {
+                let line: str = std.split_first(rest, "\n");
+                rest = std.split_rest(rest, "\n");
+                if (std.starts_with(std.trim(line), "kind=")) {
+                    let k: str = std.trim(std.substr(line, 5));
+                    if (std.lower(k) == "openrouter") { is_openrouter = true; break; }
+                }
+            }
+        }
+    }
+    if (is_openrouter) {
+        let count: i32 = ai_model_count("openrouter");
+        if (count == 0) { return 1; }
+        let i: i32 = 0;
+        while (i < count) {
+            std.print(std.to_str(i) + ". " + ai_model_at("openrouter", i));
+            i = i + 1;
+        }
+        return 0;
+    }
+    // fallback
+    std.print("No models for provider: " + provider);
+    return 1;
 }
 
 fn ai_openapi_placeholder() -> str {

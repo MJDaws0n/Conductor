@@ -1,6 +1,8 @@
 module conductor;
 
 import lib/std std;
+import lib/file_io file_io;
+import lib/process process;
 
 import src/ui;
 import src/storage;

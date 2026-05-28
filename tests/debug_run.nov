@@ -1,0 +1,12 @@
+module conductor_debug_run;
+
+import ../lib/std std;
+import ../lib/file_io file_io;
+import ../lib/process process;
+import ../src/ai_api;
+
+fn main() -> i32 {
+    let out: str = ai_run("hello world", "", "openrouter-test");
+    std.print("DEBUG RUN OUT: " + out);
+    return 0;
+}
