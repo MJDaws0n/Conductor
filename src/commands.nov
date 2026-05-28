@@ -270,6 +270,48 @@ fn command_tools() -> i32 {
     return 0;
 }
 
+fn palette_text(prefix: str) -> str {
+    let p: str = std.trim(prefix);
+    if (p == "/" || std.len(p) == 0) {
+        return "/help  /status  /model  /models  /providers  /agent  /permissions  /tools  /sessions  /init  /doctor  /clear  /exit";
+    }
+    if (std.starts_with("/agent", p) || p == "/agent") {
+        return "/agent list  /agent create NAME DESC  /agent use NAME  /agent show NAME";
+    }
+    if (std.starts_with("/permission", p) || std.starts_with("/permissions", p) || p == "/permission" || p == "/permissions") {
+        return "/permissions  /permission allow TOOL  /permission deny TOOL  /permission ask TOOL  /permission reset";
+    }
+    if (std.starts_with("/model", p) || p == "/model") {
+        return "/model  /model openrouter-placeholder/conductor-dev  /models openrouter-placeholder";
+    }
+    if (std.starts_with("/session", p) || p == "/sessions") {
+        return "/sessions  conductor session list  conductor session delete ID";
+    }
+    if (std.starts_with("/tool", p) || p == "/tools") {
+        return "/tools  read glob grep webfetch edit write bash task mcp";
+    }
+    if (std.starts_with("/m", p)) {
+        return "/model  /models";
+    }
+    if (std.starts_with("/a", p)) {
+        return "/agent list  /agent create NAME DESC  /agent use NAME";
+    }
+    if (std.starts_with("/p", p)) {
+        return "/providers  /permissions  /permission allow TOOL";
+    }
+    if (std.starts_with("/s", p)) {
+        return "/status  /sessions";
+    }
+    return "No slash suggestions. Try /help, /agent, /permission, /model, /tools, /sessions, /exit";
+}
+
+fn command_palette(argc: i32, argv: u64) -> i32 {
+    let prefix: str = "/";
+    if (argc >= 3) { prefix = arg_at(argv, 2); }
+    std.print(palette_text(prefix));
+    return 0;
+}
+
 fn command_doctor() -> i32 {
     storage_init();
     ui_header("Conductor doctor");
@@ -355,6 +397,10 @@ fn shell_run_message(message: str) -> void {
     std.print("");
     std.print("session " + id);
     std.print("");
+}
+
+fn shell_redraw(last_user: str, last_response: str, suggestions: str, notice: str) -> void {
+    ui_tui_frame(storage_get_active_agent(), storage_get_active_model(), last_user, last_response, suggestions, notice);
 }
 
 fn shell_agent_command(rest: str) -> void {
@@ -449,7 +495,11 @@ fn shell_handle_command(line: str) -> bool {
 
 fn command_chat() -> i32 {
     storage_init();
-    ui_shell_banner(storage_get_active_agent(), storage_get_active_model());
+    let last_user: str = "";
+    let last_response: str = "";
+    let suggestions: str = palette_text("/");
+    let notice: str = "Ready";
+    shell_redraw(last_user, last_response, suggestions, notice);
     let running: bool = true;
     let empty_reads: i32 = 0;
     while (running) {
@@ -459,13 +509,31 @@ fn command_chat() -> i32 {
             if (empty_reads >= 3) {
                 std.print("No input received; leaving Conductor.");
                 running = false;
+            } else {
+                notice = "Blank input. Type /help or /exit.";
+                shell_redraw(last_user, last_response, suggestions, notice);
             }
+        } else if (line == "/" || line == "/a" || line == "/agent" || line == "/p" || line == "/permission" || line == "/permissions" || line == "/m" || line == "/model" || line == "/s" || line == "/sessions" || line == "/tools") {
+            empty_reads = 0;
+            suggestions = palette_text(line);
+            notice = "Suggestions for " + line;
+            shell_redraw(last_user, last_response, suggestions, notice);
         } else if (std.starts_with(line, "/")) {
             empty_reads = 0;
             running = shell_handle_command(line);
+            suggestions = palette_text("/");
+            notice = "Command executed: " + first_word(line);
+            if (running) { shell_redraw(last_user, last_response, suggestions, notice); }
         } else {
             empty_reads = 0;
-            shell_run_message(line);
+            last_user = line;
+            last_response = ai_placeholder_response(line, storage_get_active_model(), storage_get_active_agent());
+            let title: str = line;
+            if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
+            let id: str = storage_record_session(title, line, last_response);
+            suggestions = palette_text("/");
+            notice = "Saved " + id;
+            shell_redraw(last_user, last_response, suggestions, notice);
         }
     }
     return 0;
@@ -485,6 +553,7 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
         return 0;
     }
     if (cmd == "chat") { return command_chat(); }
+    if (cmd == "palette" || cmd == "suggest") { return command_palette(argc, argv); }
     if (cmd == "run" || cmd == "prompt") { return command_run(argc, argv); }
     if (cmd == "models") { return command_models(argc, argv); }
     if (cmd == "providers") { return command_providers(); }

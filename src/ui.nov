@@ -42,6 +42,62 @@ fn ui_kv(key: str, value: str) -> void {
     std.print(key + ": " + value);
 }
 
+fn ui_repeat(ch: str, n: i32) -> str {
+    let out: str = "";
+    let i: i32 = 0;
+    while (i < n) {
+        out = out + ch;
+        i = i + 1;
+    }
+    return out;
+}
+
+fn ui_clip(s: str, width: i32) -> str {
+    if (std.len(s) <= width) { return s; }
+    if (width <= 3) { return std.substr_len(s, 0, width); }
+    return std.substr_len(s, 0, width - 3) + "...";
+}
+
+fn ui_pad(s: str, width: i32) -> str {
+    let clipped: str = ui_clip(s, width);
+    return clipped + ui_repeat(" ", width - std.len(clipped));
+}
+
+fn ui_box_line(left: str, right: str) -> void {
+    std.print("| " + ui_pad(left, 54) + " | " + ui_pad(right, 33) + " |");
+}
+
+fn ui_screen_spacer() -> void {
+    let i: i32 = 0;
+    while (i < 34) {
+        std.print("");
+        i = i + 1;
+    }
+}
+
+fn ui_tui_frame(agent: str, model: str, last_user: str, last_response: str, suggestions: str, notice: str) -> void {
+    ui_screen_spacer();
+    std.print("+----------------------------------------------------------------------------------------------+");
+    std.print("| Conductor fullscreen terminal agent                                      v" + ui_pad(conductor_version(), 7) + " |");
+    std.print("+--------------------------------------------------------+-------------------------------------+");
+    ui_box_line("Active agent: " + agent, "Shortcuts");
+    ui_box_line("Active model: " + model, "/help      command palette");
+    ui_box_line("State: placeholder AI API", "/agent     manage agents");
+    ui_box_line("Permissions: /permissions", "/model     switch model");
+    ui_box_line("", "/exit      leave app");
+    std.print("+--------------------------------------------------------+-------------------------------------+");
+    ui_box_line("Conversation", "Suggestions");
+    ui_box_line("You: " + last_user, ui_clip(suggestions, 33));
+    ui_box_line("Conductor: " + last_response, "Type / then Enter for all");
+    ui_box_line("", "Type /agent for agent cmds");
+    ui_box_line("", "Type /permission for tools");
+    std.print("+--------------------------------------------------------+-------------------------------------+");
+    ui_box_line("Notice: " + notice, "Composer");
+    ui_box_line("Enter text to send a message.", "Use slash commands.");
+    ui_box_line("Live tab-complete needs raw terminal input support.", "Line suggestions enabled.");
+    std.print("+----------------------------------------------------------------------------------------------+");
+}
+
 fn ui_help() -> void {
     ui_logo();
     std.print("");
@@ -69,6 +125,7 @@ fn ui_help() -> void {
     std.print("  export [file]                   Export local session index");
     std.print("  serve [--port N]                Start placeholder headless server notice");
     std.print("  generate                        Print placeholder API/OpenAPI schema");
+    std.print("  palette [slash-prefix]          Show slash command suggestions");
     std.print("  version                         Print version");
     std.print("");
     std.print("Global options:");
@@ -110,11 +167,7 @@ fn ui_shell_help() -> void {
 }
 
 fn ui_shell_banner(agent: str, model: str) -> void {
-    ui_logo();
-    std.print("");
-    std.print("Terminal agent shell. Type a request, or /help for commands.");
-    std.print("agent=" + agent + "  model=" + model);
-    std.print("");
+    ui_tui_frame(agent, model, "", "", "/help /agent /model /permission /tools /sessions /exit", "Ready");
 }
 
 fn ui_version() -> void {

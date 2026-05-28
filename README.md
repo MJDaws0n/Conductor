@@ -4,7 +4,9 @@ Conductor is a CLI-only Novus/Nox rebuild target for Kilo Code-style workflows. 
 
 The current implementation is a Novus-native terminal shell with placeholder AI API behavior. The placeholder controller lives in `src/ai_api.nov` so OpenRouter support can be wired in later without changing the command surface.
 
-Run `conductor` with no arguments, or `conductor chat`, to open the interactive terminal agent shell. Type normal requests to send a placeholder AI turn, or use slash commands such as `/help`, `/agent`, `/model`, `/permissions`, `/tools`, `/sessions`, `/status`, and `/exit`.
+Run `conductor` with no arguments, or `conductor chat`, to open the fullscreen-style terminal agent shell. Type normal requests to send a placeholder AI turn, or use slash commands such as `/help`, `/agent`, `/model`, `/permissions`, `/tools`, `/sessions`, `/status`, and `/exit`.
+
+The current TUI uses safe line-based input and redraws the whole screen on each turn. It shows slash suggestions when you enter `/`, `/agent`, `/permission`, `/model`, and related prefixes. True live tab-completion while typing would need a raw-mode terminal input library for Novus, so it is intentionally not hacked in yet.
 
 ## Build
 
@@ -50,15 +52,21 @@ conductor serve [--port N]
 conductor generate
 conductor version
 conductor help
+conductor palette [slash-prefix]
 ```
 
 ## Interactive shell
 
 ```text
-conductor> /status
-conductor> /agent create reviewer Reviews code carefully
++----------------------------------------------------------------------------------------------+
+| Conductor fullscreen terminal agent                                      v0.1.0   |
++--------------------------------------------------------+-------------------------------------+
+| Active agent: conductor-agent                          | Shortcuts                           |
+| Active model: openrouter-placeholder/conductor-dev     | /help      command palette          |
+| State: placeholder AI API                              | /agent     manage agents            |
++--------------------------------------------------------+-------------------------------------+
+conductor> /agent
 conductor> /agent use reviewer
-conductor> /permission deny bash
 conductor> Explain this project structure
 conductor> /exit
 ```
@@ -80,6 +88,13 @@ Available slash-command groups:
 /doctor
 /clear
 /exit
+```
+
+Suggestion previews are also available non-interactively:
+
+```sh
+conductor palette /agent
+conductor palette /permission
 ```
 
 Local state is stored in `.conductor/` by default. Set `CONDUCTOR_HOME` to use another data directory.
