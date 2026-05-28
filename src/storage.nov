@@ -422,6 +422,71 @@ fn storage_agent_exists(name: str) -> bool {
     return file_io.file_exists(storage_agent_path(name));
 }
 
+fn storage_providers_dir() -> str {
+    return file_io.path_join(storage_root(), "providers");
+}
+
+fn storage_provider_index_path() -> str {
+    return file_io.path_join(storage_providers_dir(), "index.txt");
+}
+
+fn storage_provider_path(name: str) -> str {
+    return file_io.path_join(storage_providers_dir(), name + ".txt");
+}
+
+fn storage_providers_init() -> void {
+    file_io.mkdirp(storage_providers_dir());
+    if (!file_io.file_exists(storage_provider_index_path())) {
+        file_io.write_file(storage_provider_index_path(), "openrouter-placeholder | env:OPENROUTER_API_KEY | default\n");
+    }
+}
+
+fn storage_provider_create(name: str, kind: str, conn: str) -> i32 {
+    storage_init();
+    storage_providers_init();
+    if (std.len(std.trim(name)) == 0) { return 1; }
+    let path: str = storage_provider_path(name);
+    if (file_io.file_exists(path)) { return 2; }
+    file_io.write_file(path, "name=" + name + "\nkind=" + kind + "\nconnection=" + conn + "\n");
+    file_io.file_append(storage_provider_index_path(), name + " | " + conn + " | " + kind + "\n");
+    return 0;
+}
+
+fn storage_provider_exists(name: str) -> bool {
+    storage_providers_init();
+    return file_io.file_exists(storage_provider_path(name));
+}
+
+fn storage_provider_list() -> str {
+    storage_providers_init();
+    return file_io.read_file(storage_provider_index_path());
+}
+
+fn storage_provider_get(name: str) -> str {
+    storage_providers_init();
+    if (!file_io.file_exists(storage_provider_path(name))) { return ""; }
+    return file_io.read_file(storage_provider_path(name));
+}
+
+fn storage_provider_delete(name: str) -> i32 {
+    storage_providers_init();
+    if (!file_io.file_exists(storage_provider_path(name))) { return 1; }
+    file_io.file_delete(storage_provider_path(name));
+    let idx: str = file_io.read_file(storage_provider_index_path());
+    let rest: str = idx;
+    let new_index: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let lt: str = std.trim(line);
+        if (std.len(lt) == 0) { continue; }
+        let pname: str = std.trim(std.split_first(lt, "|"));
+        if (pname != name) { new_index = new_index + lt + "\n"; }
+    }
+    file_io.write_file(storage_provider_index_path(), new_index);
+    return 0;
+}
+
 fn storage_create_agent(name: str, desc: str, mode: str, perms: str) -> i32 {
     storage_init();
     if (std.len(std.trim(name)) == 0) {

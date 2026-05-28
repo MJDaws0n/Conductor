@@ -52,6 +52,7 @@ fn collect_message(argc: i32, argv: u64, start: i32) -> str {
 
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
+    let provider: str = option_value(argc, argv, "--provider", "openrouter");
     let model: str = option_value(argc, argv, "--model", storage_get_active_model());
     let agent: str = option_value(argc, argv, "--agent", storage_get_active_agent());
     let file_path: str = option_value(argc, argv, "--file", "");
@@ -66,7 +67,12 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     if (std.len(std.trim(message)) == 0) {
         message = std.input("Message: ", 4096);
     }
-    let response: str = ai_placeholder_response(message, model, agent);
+    let response: str = "";
+    if (ai_provider_exists(provider)) {
+        response = ai_run(message, model, provider);
+    } else {
+        response = ai_placeholder_response(message, model, agent);
+    }
     ui_logo();
     std.print("");
     std.print(response);
@@ -102,6 +108,14 @@ fn command_models(argc: i32, argv: u64) -> i32 {
 }
 
 fn command_providers() -> i32 {
+    storage_init();
+    if (!storage_provider_exists("openrouter")) {
+        // create default provider pointing at env var
+        storage_provider_create("openrouter", "openrouter", "env:OPENROUTER_API_KEY");
+    }
+    if (has_arg(argc, argv, "add")) {
+        // not supported in this invocation path; fall back
+    }
     ai_print_providers();
     return 0;
 }

@@ -2,6 +2,8 @@ module conductor_tests;
 
 import ../lib/std std;
 
+import ../lib/file_io file_io;
+import ../lib/process process;
 import ../src/ai_api;
 import ../src/storage;
 
