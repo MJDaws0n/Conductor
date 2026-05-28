@@ -9,6 +9,7 @@ import ../lib/time time;
 import ui;
 import storage;
 import ai_api;
+import ai_tools;
 
 fn arg_at(argv: u64, index: i32) -> str {
     return std.argv_get(argv, index);
@@ -400,6 +401,20 @@ fn command_remote() -> i32 {
     return 0;
 }
 
+fn command_tool(argc: i32, argv: u64) -> i32 {
+    if (argc < 3) { ui_error("Usage: conductor tool run <tool> <args>"); return 1; }
+    if (arg_at(argv, 2) == "run") {
+        if (argc < 4) { ui_error("Usage: conductor tool run <tool> <args>"); return 1; }
+        let tool: str = arg_at(argv, 3);
+        let args: str = collect_message(argc, argv, 4);
+        let out: str = ai_execute_tool(tool, args);
+        std.print(out);
+        return 0;
+    }
+    ui_error("Usage: conductor tool run <tool> <args>");
+    return 1;
+}
+
 fn shell_run_message(message: str) -> void {
     let model: str = storage_get_active_model();
     let agent: str = storage_get_active_agent();
@@ -633,6 +648,7 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
     if (cmd == "serve") { return command_serve(argc, argv); }
     if (cmd == "generate") { return command_generate(); }
     if (cmd == "remote" || cmd == "attach") { return command_remote(); }
+    if (cmd == "tool") { return command_tool(argc, argv); }
     ui_error("Unknown command: " + cmd);
     std.print("Run 'conductor help' for usage.");
     return 1;

@@ -1,0 +1,63 @@
+module conductor_ai_tools;
+
+import ../lib/std std;
+import ../lib/process process;
+import ../lib/file_io file_io;
+import ../lib/time time;
+import storage;
+
+fn ai_audit_log(tool: str, args: str, allowed: bool, result: str) -> void {
+    let t: i64 = time.get_time_ms();
+    let allowed_str: str = "no";
+    if (allowed) { allowed_str = "yes"; }
+    let line: str = std.to_str(t) + " | " + tool + " | " + args + " | allowed=" + allowed_str + " | " + std.replace(result, "\n", "\\n") + "\n";
+    file_io.file_append(file_io.path_join(storage_root(), "audit.log"), line);
+}
+
+fn ai_tool_allowed(tool: str) -> bool {
+    // consult explicit per-tool permission
+    let p: str = storage_permission_get(tool);
+    if (p == "allow") { return true; }
+    if (p == "deny") { return false; }
+    // unknown or ask -> consult global default
+    let g: str = storage_get_permission_default();
+    g = std.lower(std.trim(g));
+    if (g == "allow") { return true; }
+    if (g == "deny") { return false; }
+    // g == ask -> prompt user
+    let ans: str = std.lower(std.trim(std.input("Allow Conductor to run tool '" + tool + "'? (y/n): ", 8)));
+    if (ans == "y" || ans == "yes") { storage_permission_set(tool, "allow"); return true; }
+    storage_permission_set(tool, "deny");
+    return false;
+}
+
+fn ai_execute_tool(tool: str, args: str) -> str {
+    // audit and permission check
+    if (!ai_tool_allowed(tool)) {
+        ai_audit_log(tool, args, false, "permission denied");
+        return "Permission denied for tool: " + tool;
+    }
+    let out: str = "";
+    if (tool == "bash") {
+        out = process.shell_output(args, 65536);
+        ai_audit_log(tool, args, true, out);
+        return out;
+    }
+    if (tool == "read") {
+        if (!file_io.file_exists(args)) {
+            out = "File not found: " + args;
+            ai_audit_log(tool, args, true, out);
+            return out;
+        }
+        out = file_io.read_file(args);
+        ai_audit_log(tool, args, true, "read file");
+        return out;
+    }
+    if (tool == "webfetch") {
+        out = process.shell_output("curl -s '" + args + "'", 65536);
+        ai_audit_log(tool, args, true, out);
+        return out;
+    }
+    ai_audit_log(tool, args, true, "unknown tool");
+    return "Unknown tool: " + tool;
+}

@@ -394,6 +394,22 @@ fn storage_print_permissions() -> void {
     }
 }
 
+fn storage_permission_default_path() -> str {
+    return file_io.path_join(storage_root(), "permission-default.txt");
+}
+
+fn storage_set_permission_default(val: str) -> void {
+    storage_init();
+    file_io.write_file(storage_permission_default_path(), val);
+}
+
+fn storage_get_permission_default() -> str {
+    storage_init();
+    let path: str = storage_permission_default_path();
+    if (!file_io.file_exists(path)) { return "ask"; }
+    return std.trim(file_io.read_file(path));
+}
+
 fn storage_get_active_agent() -> str {
     storage_init();
     return std.trim(file_io.read_file(storage_active_agent_path()));
