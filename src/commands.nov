@@ -77,6 +77,8 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     ui_logo();
     std.print("");
     std.print(response);
+    // execute any TOOL: directives in the assistant response (auto-run allowed tools)
+    process_tool_commands_from_response(response);
     let title: str = message;
     if (std.len(title) > 48) {
         title = std.substr_len(title, 0, 48);
@@ -421,10 +423,33 @@ fn shell_run_message(message: str) -> void {
     std.print("You: " + message);
     let response: str = ai_placeholder_response(message, model, agent);
     std.print("Conductor: " + response);
+    // Auto-execute any TOOL directives in response
+    process_tool_commands_from_response(response);
     let title: str = message;
     if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
     let id: str = storage_record_session(title, message, response);
     std.print("session " + id);
+}
+
+fn process_tool_commands_from_response(response: str) -> void {
+    let rest: str = response;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let tline: str = std.trim(line);
+        if (std.starts_with(tline, "TOOL:") || std.starts_with(tline, "tool:")) {
+            let after: str = std.trim(std.substr(tline, 5));
+            let toolName: str = std.split_first(after, " ");
+            let targs: str = std.split_rest(after, " ");
+            if (std.len(toolName) > 0) {
+                std.print("Executing tool: " + toolName + " " + targs);
+                let out: str = ai_execute_tool(toolName, targs);
+                std.print("Tool output: " + out);
+                let sid: str = storage_get_active_session();
+                if (std.len(std.trim(sid)) > 0) { storage_append_message(sid, "tool", out); }
+            }
+        }
+    }
 }
 
 fn shell_agent_command(rest: str) -> void {
