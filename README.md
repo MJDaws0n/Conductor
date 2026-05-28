@@ -90,6 +90,17 @@ OpenRouter & providers
 - Configure an OpenRouter API key in your environment: `export OPENROUTER_API_KEY="sk_..."`
 - Or add a provider: `conductor providers add myopen openrouter env:MY_OPENROUTER_KEY` and then `conductor providers use myopen`.
 - Encrypted local keys supported via `gpg:/path/to/key.gpg` (Conductor will run `gpg --decrypt` to read the key).
+- OS keyring supported via `keyring:<name>` (Conductor will try libsecret's `secret-tool lookup conductor <name>` on Linux, or `security find-generic-password -s conductor -a <name> -w` on macOS).
+  - Store on Linux (libsecret):
+    ```sh
+    secret-tool store conductor mykey
+    # then paste the secret when prompted
+    ```
+  - Store on macOS:
+    ```sh
+    security add-generic-password -s conductor -a mykey -w "THE_SECRET"
+    ```
+- Preference: environment variables are recommended for automation and CI.
 
 Tools & auto-run
 
