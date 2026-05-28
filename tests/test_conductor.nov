@@ -27,6 +27,23 @@ fn main() -> i32 {
     let agent_name: str = storage_new_session_id();
     failures = failures + assert_true(storage_create_agent(agent_name, "test desc", "all", "read") == 0, "agent create");
     failures = failures + assert_true(storage_set_active_agent(agent_name) == 0, "agent use");
+
+    // Session behavior tests
+    let sid1: str = storage_create_session("test-session-1");
+    failures = failures + assert_true(std.len(std.trim(sid1)) > 0, "session created on startup");
+    let active: str = storage_get_active_session();
+    failures = failures + assert_true(active == sid1, "active session set after create");
+    let rec: str = storage_record_session("title", "hello", "world");
+    failures = failures + assert_true(rec == sid1, "recording uses active session");
+    // create an empty session and then restore first session
+    let sid2: str = storage_create_session("empty-session");
+    failures = failures + assert_true(std.len(std.trim(sid2)) > 0, "empty session created");
+    let _rc: i32 = storage_set_active_session(sid1);
+    // cleanup should remove the empty session
+    storage_cleanup_sessions();
+    let del_rc: i32 = storage_delete_session(sid2);
+    failures = failures + assert_true(del_rc == 1, "cleanup removed empty session");
+
     if (failures == 0) {
         std.print("All Conductor Novus tests passed.");
         return 0;

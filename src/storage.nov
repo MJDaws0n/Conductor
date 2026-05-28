@@ -88,6 +88,102 @@ fn storage_new_session_id() -> str {
     return "session-" + std.to_str(t);
 }
 
+fn storage_active_session_path() -> str {
+    return file_io.path_join(storage_root(), "active-session.txt");
+}
+
+fn storage_get_active_session() -> str {
+    storage_init();
+    if (!file_io.file_exists(storage_active_session_path())) {
+        return "";
+    }
+    return std.trim(file_io.read_file(storage_active_session_path()));
+}
+
+fn storage_set_active_session(id: str) -> i32 {
+    storage_init();
+    let path: str = file_io.path_join(storage_sessions_dir(), id + ".txt");
+    if (!file_io.file_exists(path)) {
+        return 1;
+    }
+    file_io.write_file(storage_active_session_path(), id);
+    return 0;
+}
+
+fn storage_create_session(title: str) -> str {
+    storage_init();
+    let id: str = storage_new_session_id();
+    let file_name: str = id + ".txt";
+    let path: str = file_io.path_join(storage_sessions_dir(), file_name);
+    let t: i64 = time.get_time_ms();
+    let body: str = "id=" + id + "\n";
+    body = body + "title=" + title + "\n";
+    body = body + "created_at=" + std.to_str(t) + "\n";
+    file_io.write_file(path, body);
+    file_io.file_append(storage_session_index_path(), id + " | " + title + "\n");
+    file_io.write_file(storage_active_session_path(), id);
+    return id;
+}
+
+fn storage_append_message(session_id: str, role: str, content: str) -> void {
+    storage_init();
+    let path: str = file_io.path_join(storage_sessions_dir(), session_id + ".txt");
+    if (!file_io.file_exists(path)) { return; }
+    let t: i64 = time.get_time_ms();
+    file_io.file_append(path, "===MSG_START===\nrole=" + role + "\ntimestamp=" + std.to_str(t) + "\ncontent=\n" + content + "\n===MSG_END===\n");
+}
+
+fn storage_last_session() -> str {
+    storage_init();
+    let idx: str = file_io.read_file(storage_session_index_path());
+    let rest: str = idx;
+    let last_id: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let ltrim: str = std.trim(line);
+        if (std.len(ltrim) > 0) {
+            last_id = std.trim(std.split_first(ltrim, "|"));
+        }
+    }
+    return last_id;
+}
+
+fn storage_cleanup_sessions() -> void {
+    storage_init();
+    let idx: str = file_io.read_file(storage_session_index_path());
+    let rest: str = idx;
+    let new_index: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let line_trim: str = std.trim(line);
+        if (std.len(line_trim) == 0) { continue; }
+        let id: str = std.trim(std.split_first(line_trim, "|"));
+        let path: str = file_io.path_join(storage_sessions_dir(), id + ".txt");
+        if (!file_io.file_exists(path)) {
+            // skip missing files
+        } else {
+            let content: str = file_io.read_file(path);
+            if (std.contains(content, "===MSG_START===")) {
+                new_index = new_index + id + " | " + std.trim(std.split_rest(line_trim, "|")) + "\n";
+            } else {
+                file_io.file_delete(path);
+            }
+        }
+    }
+    file_io.write_file(storage_session_index_path(), new_index);
+    let active: str = storage_get_active_session();
+    if (std.len(std.trim(active)) > 0) {
+        let active_path: str = file_io.path_join(storage_sessions_dir(), active + ".txt");
+        if (!file_io.file_exists(active_path)) {
+            if (file_io.file_exists(storage_active_session_path())) {
+                file_io.file_delete(storage_active_session_path());
+            }
+        }
+    }
+}
+
 fn storage_increment_runs() -> void {
     let content: str = file_io.read_file(storage_stats_path());
     let count: i32 = 0;
@@ -100,15 +196,12 @@ fn storage_increment_runs() -> void {
 
 fn storage_record_session(title: str, prompt: str, response: str) -> str {
     storage_init();
-    let id: str = storage_new_session_id();
-    let file_name: str = id + ".txt";
-    let path: str = file_io.path_join(storage_sessions_dir(), file_name);
-    let body: str = "id=" + id + "\n";
-    body = body + "title=" + title + "\n";
-    body = body + "prompt=" + prompt + "\n";
-    body = body + "response=" + response + "\n";
-    file_io.write_file(path, body);
-    file_io.file_append(storage_session_index_path(), id + " | " + title + "\n");
+    let id: str = storage_get_active_session();
+    if (std.len(std.trim(id)) == 0) {
+        id = storage_create_session(title);
+    }
+    storage_append_message(id, "user", prompt);
+    storage_append_message(id, "assistant", response);
     storage_increment_runs();
     return id;
 }
@@ -127,9 +220,42 @@ fn storage_delete_session(id: str) -> i32 {
     storage_init();
     let path: str = file_io.path_join(storage_sessions_dir(), id + ".txt");
     if (!file_io.file_exists(path)) {
+        let idx_content: str = file_io.read_file(storage_session_index_path());
+        let rest: str = idx_content;
+        let new_index: str = "";
+        while (std.len(std.trim(rest)) > 0) {
+            let line: str = std.split_first(rest, "\n");
+            rest = std.split_rest(rest, "\n");
+            let lt: str = std.trim(line);
+            if (std.len(lt) == 0) { continue; }
+            let curid: str = std.trim(std.split_first(lt, "|"));
+            if (curid != id) {
+                new_index = new_index + lt + "\n";
+            }
+        }
+        file_io.write_file(storage_session_index_path(), new_index);
         return 1;
     }
     file_io.file_delete(path);
+    let idx_content: str = file_io.read_file(storage_session_index_path());
+    let rest: str = idx_content;
+    let new_index: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let lt: str = std.trim(line);
+        if (std.len(lt) == 0) { continue; }
+        let curid: str = std.trim(std.split_first(lt, "|"));
+        if (curid != id) {
+            new_index = new_index + lt + "\n";
+        }
+    }
+    file_io.write_file(storage_session_index_path(), new_index);
+    if (storage_get_active_session() == id) {
+        if (file_io.file_exists(storage_active_session_path())) {
+            file_io.file_delete(storage_active_session_path());
+        }
+    }
     return 0;
 }
 
