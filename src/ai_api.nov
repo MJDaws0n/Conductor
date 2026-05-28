@@ -73,6 +73,13 @@ fn provider_get_api_key(provider: str) -> str {
         let path: str = std.trim(std.substr(conn_line, 5));
         return std.trim(file_io.read_file(path));
     }
+    if (std.starts_with(conn_line, "gpg:")) {
+        // decrypt using gpg -- assumes user has keys or symmetric passphrase access
+        let path: str = std.trim(std.substr(conn_line, 4));
+        let cmd: str = "gpg --batch --yes --quiet --decrypt '" + path + "'";
+        let dec: str = process.shell_output(cmd, 65536);
+        return std.trim(dec);
+    }
     // unknown scheme - return raw
     return conn_line;
 }
