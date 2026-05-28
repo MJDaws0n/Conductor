@@ -526,7 +526,8 @@ fn storage_provider_path(name: str) -> str {
 }
 
 fn storage_providers_init() -> void {
-    file_io.mkdirp(storage_providers_dir());
+    let pdir: str = storage_providers_dir();
+    file_io.mkdirp(pdir);
     if (!file_io.file_exists(storage_provider_index_path())) {
         file_io.write_file(storage_provider_index_path(), "openrouter | env:OPENROUTER_API_KEY | default\n");
     }

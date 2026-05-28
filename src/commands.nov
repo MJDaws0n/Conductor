@@ -100,8 +100,10 @@ fn rest_words(line: str) -> str {
 fn command_models(argc: i32, argv: u64) -> i32 {
     let verbose: bool = has_arg(argc, argv, "--verbose");
     let provider: str = "";
-    if (argc >= 3 && !std.starts_with(arg_at(argv, 2), "--")) {
-        provider = arg_at(argv, 2);
+    if (argc >= 3) {
+        if (!std.starts_with(arg_at(argv, 2), "--")) {
+            provider = arg_at(argv, 2);
+        }
     }
     let rc: i32 = ai_print_models(provider, verbose);
     if (rc != 0) {
@@ -113,41 +115,51 @@ fn command_models(argc: i32, argv: u64) -> i32 {
 fn command_providers(argc: i32, argv: u64) -> i32 {
     storage_init();
     storage_providers_init();
-    if (argc >= 3 && arg_at(argv, 2) == "list") {
-        std.print(storage_provider_list());
-        return 0;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "list") {
+            std.print(storage_provider_list());
+            return 0;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "add") {
-        let name: str = option_value(argc, argv, "--name", "");
-        let kind: str = option_value(argc, argv, "--kind", "openrouter");
-        let conn: str = option_value(argc, argv, "--conn", "env:OPENROUTER_API_KEY");
-        if (std.len(std.trim(name)) == 0) { ui_error("Usage: conductor providers add --name NAME --kind KIND --conn CONNECTION"); return 1; }
-        let rc: i32 = storage_provider_create(name, kind, conn);
-        if (rc == 0) { ui_ok("Provider added: " + name); return 0; }
-        if (rc == 2) { ui_error("Provider already exists: " + name); return 1; }
-        ui_error("Failed to add provider.");
-        return 1;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "add") {
+            let name: str = option_value(argc, argv, "--name", "");
+            let kind: str = option_value(argc, argv, "--kind", "openrouter");
+            let conn: str = option_value(argc, argv, "--conn", "env:OPENROUTER_API_KEY");
+            if (std.len(std.trim(name)) == 0) { ui_error("Usage: conductor providers add --name NAME --kind KIND --conn CONNECTION"); return 1; }
+            let rc: i32 = storage_provider_create(name, kind, conn);
+            if (rc == 0) { ui_ok("Provider added: " + name); return 0; }
+            if (rc == 2) { ui_error("Provider already exists: " + name); return 1; }
+            ui_error("Failed to add provider.");
+            return 1;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "show") {
-        if (argc < 4) { ui_error("Usage: conductor providers show <name>"); return 1; }
-        let cfg: str = storage_provider_get(arg_at(argv, 3));
-        if (std.len(std.trim(cfg)) == 0) { ui_error("Provider not found: " + arg_at(argv, 3)); return 1; }
-        std.print(cfg);
-        return 0;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "show") {
+            if (argc < 4) { ui_error("Usage: conductor providers show <name>"); return 1; }
+            let cfg: str = storage_provider_get(arg_at(argv, 3));
+            if (std.len(std.trim(cfg)) == 0) { ui_error("Provider not found: " + arg_at(argv, 3)); return 1; }
+            std.print(cfg);
+            return 0;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "use") {
-        if (argc < 4) { ui_error("Usage: conductor providers use <name>"); return 1; }
-        let rc: i32 = storage_set_active_provider(arg_at(argv, 3));
-        if (rc == 0) { ui_ok("Active provider: " + arg_at(argv, 3)); return 0; }
-        ui_error("Provider not found: " + arg_at(argv, 3));
-        return 1;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "use") {
+            if (argc < 4) { ui_error("Usage: conductor providers use <name>"); return 1; }
+            let rc: i32 = storage_set_active_provider(arg_at(argv, 3));
+            if (rc == 0) { ui_ok("Active provider: " + arg_at(argv, 3)); return 0; }
+            ui_error("Provider not found: " + arg_at(argv, 3));
+            return 1;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "delete") {
-        if (argc < 4) { ui_error("Usage: conductor providers delete <name>"); return 1; }
-        let rc: i32 = storage_provider_delete(arg_at(argv, 3));
-        if (rc == 0) { ui_ok("Provider deleted: " + arg_at(argv, 3)); return 0; }
-        ui_error("Provider not found: " + arg_at(argv, 3));
-        return 1;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "delete") {
+            if (argc < 4) { ui_error("Usage: conductor providers delete <name>"); return 1; }
+            let rc: i32 = storage_provider_delete(arg_at(argv, 3));
+            if (rc == 0) { ui_ok("Provider deleted: " + arg_at(argv, 3)); return 0; }
+            ui_error("Provider not found: " + arg_at(argv, 3));
+            return 1;
+        }
     }
     // default: list
     std.print(storage_provider_list());
@@ -156,44 +168,56 @@ fn command_providers(argc: i32, argv: u64) -> i32 {
 
 fn command_agent(argc: i32, argv: u64) -> i32 {
     storage_init();
-    if (argc >= 3 && arg_at(argv, 2) == "create") {
-        let name: str = option_value(argc, argv, "--name", "conductor-agent");
-        let desc: str = option_value(argc, argv, "--description", "Placeholder Conductor agent");
-        let rc: i32 = storage_create_agent(name, desc, "all", "read,edit,glob,grep,bash,webfetch,task,mcp");
-        if (rc == 0) { ui_ok("Agent created: " + name); return 0; }
-        if (rc == 2) { ui_error("Agent already exists: " + name); return 1; }
-        ui_error("Agent name is required.");
-        return 1;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "create") {
+            let name: str = option_value(argc, argv, "--name", "conductor-agent");
+            let desc: str = option_value(argc, argv, "--description", "Placeholder Conductor agent");
+            let rc: i32 = storage_create_agent(name, desc, "all", "read,edit,glob,grep,bash,webfetch,task,mcp");
+            if (rc == 0) { ui_ok("Agent created: " + name); return 0; }
+            if (rc == 2) { ui_error("Agent already exists: " + name); return 1; }
+            ui_error("Agent name is required.");
+            return 1;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "use") {
-        if (argc < 4) { ui_error("Usage: conductor agent use <name>"); return 1; }
-        let rc: i32 = storage_set_active_agent(arg_at(argv, 3));
-        if (rc == 0) { ui_ok("Active agent: " + arg_at(argv, 3)); return 0; }
-        ui_error("Agent not found: " + arg_at(argv, 3));
-        return 1;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "use") {
+            if (argc < 4) { ui_error("Usage: conductor agent use <name>"); return 1; }
+            let rc: i32 = storage_set_active_agent(arg_at(argv, 3));
+            if (rc == 0) { ui_ok("Active agent: " + arg_at(argv, 3)); return 0; }
+            ui_error("Agent not found: " + arg_at(argv, 3));
+            return 1;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "show") {
-        let name: str = storage_get_active_agent();
-        if (argc >= 4) { name = arg_at(argv, 3); }
-        let rc: i32 = storage_print_agent(name);
-        if (rc != 0) { ui_error("Agent not found: " + name); }
-        return rc;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "show") {
+            let name: str = storage_get_active_agent();
+            if (argc >= 4) { name = arg_at(argv, 3); }
+            let rc: i32 = storage_print_agent(name);
+            if (rc != 0) { ui_error("Agent not found: " + name); }
+            return rc;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "current") {
-        std.print(storage_get_active_agent());
-        return 0;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "current") {
+            std.print(storage_get_active_agent());
+            return 0;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "list") {
-        storage_print_agents();
-        return 0;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "list") {
+            storage_print_agents();
+            return 0;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "delete") {
-        if (argc < 4) { ui_error("Usage: conductor agent delete <name>"); return 1; }
-        let rc: i32 = storage_delete_agent(arg_at(argv, 3));
-        if (rc == 0) { ui_ok("Agent deleted: " + arg_at(argv, 3)); return 0; }
-        if (rc == 2) { ui_error("The default agent cannot be deleted."); return 1; }
-        ui_error("Agent not found: " + arg_at(argv, 3));
-        return 1;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "delete") {
+            if (argc < 4) { ui_error("Usage: conductor agent delete <name>"); return 1; }
+            let rc: i32 = storage_delete_agent(arg_at(argv, 3));
+            if (rc == 0) { ui_ok("Agent deleted: " + arg_at(argv, 3)); return 0; }
+            if (rc == 2) { ui_error("The default agent cannot be deleted."); return 1; }
+            ui_error("Agent not found: " + arg_at(argv, 3));
+            return 1;
+        }
     }
     ui_error("Usage: conductor agent create|list|use|show|current|delete");
     return 1;
@@ -201,14 +225,20 @@ fn command_agent(argc: i32, argv: u64) -> i32 {
 
 fn command_permission(argc: i32, argv: u64) -> i32 {
     storage_init();
-    if (argc < 3 || arg_at(argv, 2) == "list") {
+    if (argc < 3) {
         storage_print_permissions();
         return 0;
     }
-    if (arg_at(argv, 2) == "reset") {
-        storage_permissions_reset();
-        ui_ok("Permissions reset.");
+    if (arg_at(argv, 2) == "list") {
+        storage_print_permissions();
         return 0;
+    }
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "reset") {
+            storage_permissions_reset();
+            ui_ok("Permissions reset.");
+            return 0;
+        }
     }
     if (argc < 4) {
         ui_error("Usage: conductor permission allow|deny|ask <tool>");
@@ -239,72 +269,89 @@ fn command_mcp(argc: i32, argv: u64) -> i32 {
     if (!file_io.file_exists(path)) {
         file_io.write_file(path, "");
     }
-    if (argc >= 3 && (arg_at(argv, 2) == "list" || arg_at(argv, 2) == "ls")) {
-        let content: str = file_io.read_file(path);
-        if (std.len(std.trim(content)) == 0) {
-            std.print("No MCP servers configured.");
+    if (argc >= 3) {
+        let a2: str = arg_at(argv, 2);
+        if (a2 == "list" || a2 == "ls") {
+            let content: str = file_io.read_file(path);
+            if (std.len(std.trim(content)) == 0) {
+                std.print("No MCP servers configured.");
+                return 0;
+            }
+            std.print(content);
             return 0;
         }
-        std.print(content);
-        return 0;
     }
-    if (argc >= 3 && arg_at(argv, 2) == "add") {
-        let name: str = option_value(argc, argv, "--name", "server");
-        let url: str = option_value(argc, argv, "--url", "stdio://placeholder");
-        file_io.file_append(path, name + " | " + url + " | placeholder\n");
-        ui_ok("MCP server added: " + name);
-        return 0;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "add") {
+            let name: str = option_value(argc, argv, "--name", "server");
+            let url: str = option_value(argc, argv, "--url", "stdio://placeholder");
+            file_io.file_append(path, name + " | " + url + " | placeholder\n");
+            ui_ok("MCP server added: " + name);
+            return 0;
+        }
     }
     ui_error("Usage: conductor mcp list|add --name NAME --url URL");
     return 1;
 }
 
 fn command_session(argc: i32, argv: u64) -> i32 {
-    if (argc >= 3 && arg_at(argv, 2) == "list") {
-        storage_print_sessions();
-        return 0;
-    }
-    if (argc >= 4 && arg_at(argv, 2) == "delete") {
-        let rc: i32 = storage_delete_session(arg_at(argv, 3));
-        if (rc == 0) {
-            ui_ok("Session deleted: " + arg_at(argv, 3));
-        } else {
-            ui_error("Session not found: " + arg_at(argv, 3));
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "list") {
+            storage_print_sessions();
+            return 0;
         }
-        return rc;
     }
-    if (argc >= 3 && arg_at(argv, 2) == "resume") {
-        let id: str = "";
-        if (argc >= 4) { id = arg_at(argv, 3); }
-        if (std.len(std.trim(id)) == 0) { ui_error("Usage: conductor session resume <sessionID>"); return 1; }
-        let rc: i32 = storage_set_active_session(id);
-        if (rc == 0) { ui_ok("Active session: " + id); return 0; }
-        ui_error("Session not found: " + id);
-        return 1;
+    if (argc >= 4) {
+        if (arg_at(argv, 2) == "delete") {
+            let rc: i32 = storage_delete_session(arg_at(argv, 3));
+            if (rc == 0) {
+                ui_ok("Session deleted: " + arg_at(argv, 3));
+            } else {
+                ui_error("Session not found: " + arg_at(argv, 3));
+            }
+            return rc;
+        }
     }
-    if (argc >= 3 && arg_at(argv, 2) == "cleanup") {
-        storage_cleanup_sessions();
-        ui_ok("Sessions cleanup complete.");
-        return 0;
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "resume") {
+            let id: str = "";
+            if (argc >= 4) { id = arg_at(argv, 3); }
+            if (std.len(std.trim(id)) == 0) { ui_error("Usage: conductor session resume <sessionID>"); return 1; }
+            let rc: i32 = storage_set_active_session(id);
+            if (rc == 0) { ui_ok("Active session: " + id); return 0; }
+            ui_error("Session not found: " + id);
+            return 1;
+        }
+    }
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "cleanup") {
+            storage_cleanup_sessions();
+            ui_ok("Sessions cleanup complete.");
+            return 0;
+        }
     }
     ui_error("Usage: conductor session list|delete|resume|cleanup <sessionID>");
     return 1;
 }
 
 fn command_config(argc: i32, argv: u64) -> i32 {
-    if (argc >= 3 && arg_at(argv, 2) == "path") {
-        storage_init();
-        std.print(storage_config_path());
-        return 0;
-    }
-    if (argc >= 3 && arg_at(argv, 2) == "check") {
-        let rc: i32 = storage_config_check();
-        if (rc == 0) {
-            ui_ok("No config warnings.");
-        } else {
-            ui_error("Config must contain provider= and model= entries.");
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "path") {
+            storage_init();
+            std.print(storage_config_path());
+            return 0;
         }
-        return rc;
+    }
+    if (argc >= 3) {
+        if (arg_at(argv, 2) == "check") {
+            let rc: i32 = storage_config_check();
+            if (rc == 0) {
+                ui_ok("No config warnings.");
+            } else {
+                ui_error("Config must contain provider= and model= entries.");
+            }
+            return rc;
+        }
     }
     storage_print_config();
     return 0;
@@ -677,7 +724,7 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
     if (cmd == "run" || cmd == "prompt") { return command_run(argc, argv); }
     if (cmd == "resume") { return command_resume(argc, argv); }
     if (cmd == "models") { return command_models(argc, argv); }
-    if (cmd == "providers") { return command_providers(); }
+    if (cmd == "providers") { return command_providers(argc, argv); }
     if (cmd == "agent") { return command_agent(argc, argv); }
     if (cmd == "permission" || cmd == "permissions") { return command_permission(argc, argv); }
     if (cmd == "mcp") { return command_mcp(argc, argv); }
