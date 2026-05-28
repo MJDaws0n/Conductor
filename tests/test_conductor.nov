@@ -5,6 +5,7 @@ import ../lib/std std;
 import ../lib/file_io file_io;
 import ../lib/process process;
 import ../src/ai_api;
+import ../src/ai_tools;
 import ../src/storage;
 
 fn assert_true(ok: bool, name: str) -> i32 {
@@ -60,6 +61,10 @@ fn main() -> i32 {
     let run_out: str = ai_run("hello world", "", "openrouter-test");
     std.print("AI RUN OUT: " + run_out);
     failures = failures + assert_true(std.contains(run_out, "mocked"), "ai_run returns mocked response when key is MOCK");
+
+    // Basic ai_tools test: run a bash command (uses global default allow)
+    let tool_out: str = ai_execute_tool("bash", "echo tool_test");
+    failures = failures + assert_true(std.contains(tool_out, "tool_test"), "ai_execute_tool bash works");
 
     if (failures == 0) {
         std.print("All Conductor Novus tests passed.");

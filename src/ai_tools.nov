@@ -53,6 +53,15 @@ fn ai_execute_tool(tool: str, args: str) -> str {
         ai_audit_log(tool, args, true, "read file");
         return out;
     }
+    if (tool == "write") {
+        // args: <path> <content...>
+        let path: str = std.split_first(args, " ");
+        let content: str = std.split_rest(args, " ");
+        file_io.write_file(path, content);
+        out = "Wrote file: " + path;
+        ai_audit_log(tool, args, true, out);
+        return out;
+    }
     if (tool == "webfetch") {
         out = process.shell_output("curl -s '" + args + "'", 65536);
         ai_audit_log(tool, args, true, out);
