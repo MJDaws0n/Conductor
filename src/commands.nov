@@ -468,7 +468,14 @@ fn shell_run_message(message: str) -> void {
     let model: str = storage_get_active_model();
     let agent: str = storage_get_active_agent();
     std.print("You: " + message);
-    let response: str = ai_placeholder_response(message, model, agent);
+    // Use the active provider (openrouter) when available so persisted keys are used
+    let provider: str = storage_get_active_provider();
+    let response: str = "";
+    if (ai_provider_exists(provider)) {
+        response = ai_run(message, model, provider);
+    } else {
+        response = ai_placeholder_response(message, model, agent);
+    }
     std.print("Conductor: " + response);
     // Auto-execute any TOOL directives in response
     process_tool_commands_from_response(response);
