@@ -84,3 +84,15 @@ Available slash-command groups:
 ```
 
 Local state is stored in `.conductor/` by default. Set `CONDUCTOR_HOME` to use another data directory.
+
+OpenRouter & providers
+
+- Configure an OpenRouter API key in your environment: `export OPENROUTER_API_KEY="sk_..."`
+- Or add a provider: `conductor providers add myopen openrouter env:MY_OPENROUTER_KEY` and then `conductor providers use myopen`.
+- Encrypted local keys supported via `gpg:/path/to/key.gpg` (Conductor will run `gpg --decrypt` to read the key).
+
+Tools & auto-run
+
+- AI responses that include lines starting with `TOOL: <tool> <args>` will auto-execute allowed tools (subject to permissions).
+- Run tools manually: `conductor tool run bash "ls -la"`.
+- Audit log: `.conductor/audit.log` records executed tool actions.
