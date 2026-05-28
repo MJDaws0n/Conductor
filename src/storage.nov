@@ -29,9 +29,35 @@ fn storage_stats_path() -> str {
     return file_io.path_join(storage_root(), "stats.txt");
 }
 
+fn storage_agents_dir() -> str {
+    return file_io.path_join(storage_root(), "agents");
+}
+
+fn storage_agents_index_path() -> str {
+    return file_io.path_join(storage_agents_dir(), "index.txt");
+}
+
+fn storage_active_agent_path() -> str {
+    return file_io.path_join(storage_root(), "active-agent.txt");
+}
+
+fn storage_active_model_path() -> str {
+    return file_io.path_join(storage_root(), "active-model.txt");
+}
+
+fn storage_permissions_dir() -> str {
+    return file_io.path_join(storage_root(), "permissions");
+}
+
+fn storage_permission_path(tool: str) -> str {
+    return file_io.path_join(storage_permissions_dir(), tool + ".txt");
+}
+
 fn storage_init() -> void {
     file_io.mkdirp(storage_root());
     file_io.mkdirp(storage_sessions_dir());
+    file_io.mkdirp(storage_agents_dir());
+    file_io.mkdirp(storage_permissions_dir());
     if (!file_io.file_exists(storage_config_path())) {
         file_io.write_file(storage_config_path(), "provider=openrouter-placeholder\nmodel=openrouter-placeholder/conductor-dev\n");
     }
@@ -41,6 +67,20 @@ fn storage_init() -> void {
     if (!file_io.file_exists(storage_stats_path())) {
         file_io.write_file(storage_stats_path(), "runs=0\n");
     }
+    if (!file_io.file_exists(storage_active_agent_path())) {
+        file_io.write_file(storage_active_agent_path(), "conductor-agent");
+    }
+    if (!file_io.file_exists(storage_active_model_path())) {
+        file_io.write_file(storage_active_model_path(), "openrouter-placeholder/conductor-dev");
+    }
+    if (!file_io.file_exists(storage_agents_index_path())) {
+        file_io.write_file(storage_agents_index_path(), "conductor-agent | all | Default terminal coding agent\n");
+    }
+    let default_agent_path: str = file_io.path_join(storage_agents_dir(), "conductor-agent.txt");
+    if (!file_io.file_exists(default_agent_path)) {
+        file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\n");
+    }
+    storage_permissions_bootstrap();
 }
 
 fn storage_new_session_id() -> str {
@@ -128,4 +168,178 @@ fn storage_import(path: str) -> i32 {
     let content: str = file_io.read_file(path);
     file_io.file_append(storage_session_index_path(), content);
     return 0;
+}
+
+fn storage_permission_default(tool: str) -> str {
+    if (tool == "read") { return "allow"; }
+    if (tool == "glob") { return "allow"; }
+    if (tool == "grep") { return "allow"; }
+    if (tool == "webfetch") { return "allow"; }
+    if (tool == "edit") { return "ask"; }
+    if (tool == "write") { return "ask"; }
+    if (tool == "bash") { return "ask"; }
+    if (tool == "task") { return "ask"; }
+    if (tool == "mcp") { return "ask"; }
+    return "ask";
+}
+
+fn storage_permission_tool_count() -> i32 {
+    return 9;
+}
+
+fn storage_permission_tool_at(index: i32) -> str {
+    if (index == 0) { return "read"; }
+    if (index == 1) { return "glob"; }
+    if (index == 2) { return "grep"; }
+    if (index == 3) { return "webfetch"; }
+    if (index == 4) { return "edit"; }
+    if (index == 5) { return "write"; }
+    if (index == 6) { return "bash"; }
+    if (index == 7) { return "task"; }
+    if (index == 8) { return "mcp"; }
+    return "";
+}
+
+fn storage_permissions_bootstrap() -> void {
+    let i: i32 = 0;
+    while (i < storage_permission_tool_count()) {
+        let tool: str = storage_permission_tool_at(i);
+        let path: str = storage_permission_path(tool);
+        if (!file_io.file_exists(path)) {
+            file_io.write_file(path, storage_permission_default(tool));
+        }
+        i = i + 1;
+    }
+}
+
+fn storage_permission_exists(tool: str) -> bool {
+    let i: i32 = 0;
+    while (i < storage_permission_tool_count()) {
+        if (storage_permission_tool_at(i) == tool) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn storage_permission_get(tool: str) -> str {
+    storage_init();
+    if (!storage_permission_exists(tool)) {
+        return "unknown";
+    }
+    return std.trim(file_io.read_file(storage_permission_path(tool)));
+}
+
+fn storage_permission_set(tool: str, value: str) -> i32 {
+    storage_init();
+    if (!storage_permission_exists(tool)) {
+        return 1;
+    }
+    if (!(value == "allow" || value == "deny" || value == "ask")) {
+        return 2;
+    }
+    file_io.write_file(storage_permission_path(tool), value);
+    return 0;
+}
+
+fn storage_permissions_reset() -> void {
+    storage_init();
+    let i: i32 = 0;
+    while (i < storage_permission_tool_count()) {
+        let tool: str = storage_permission_tool_at(i);
+        file_io.write_file(storage_permission_path(tool), storage_permission_default(tool));
+        i = i + 1;
+    }
+}
+
+fn storage_print_permissions() -> void {
+    storage_init();
+    std.print("Tool permissions");
+    std.print("----------------");
+    let i: i32 = 0;
+    while (i < storage_permission_tool_count()) {
+        let tool: str = storage_permission_tool_at(i);
+        std.print(tool + " = " + storage_permission_get(tool));
+        i = i + 1;
+    }
+}
+
+fn storage_get_active_agent() -> str {
+    storage_init();
+    return std.trim(file_io.read_file(storage_active_agent_path()));
+}
+
+fn storage_get_active_model() -> str {
+    storage_init();
+    return std.trim(file_io.read_file(storage_active_model_path()));
+}
+
+fn storage_set_active_agent(name: str) -> i32 {
+    storage_init();
+    if (!storage_agent_exists(name)) {
+        return 1;
+    }
+    file_io.write_file(storage_active_agent_path(), name);
+    return 0;
+}
+
+fn storage_set_active_model(model: str) -> void {
+    storage_init();
+    file_io.write_file(storage_active_model_path(), model);
+}
+
+fn storage_agent_path(name: str) -> str {
+    return file_io.path_join(storage_agents_dir(), name + ".txt");
+}
+
+fn storage_agent_exists(name: str) -> bool {
+    storage_init();
+    return file_io.file_exists(storage_agent_path(name));
+}
+
+fn storage_create_agent(name: str, desc: str, mode: str, perms: str) -> i32 {
+    storage_init();
+    if (std.len(std.trim(name)) == 0) {
+        return 1;
+    }
+    let path: str = storage_agent_path(name);
+    if (file_io.file_exists(path)) {
+        return 2;
+    }
+    file_io.write_file(path, "name=" + name + "\ndescription=" + desc + "\nmode=" + mode + "\npermissions=" + perms + "\n");
+    file_io.file_append(storage_agents_index_path(), name + " | " + mode + " | " + desc + "\n");
+    return 0;
+}
+
+fn storage_delete_agent(name: str) -> i32 {
+    storage_init();
+    if (name == "conductor-agent") {
+        return 2;
+    }
+    if (!storage_agent_exists(name)) {
+        return 1;
+    }
+    file_io.file_delete(storage_agent_path(name));
+    if (storage_get_active_agent() == name) {
+        file_io.write_file(storage_active_agent_path(), "conductor-agent");
+    }
+    return 0;
+}
+
+fn storage_print_agents() -> void {
+    storage_init();
+    std.print(file_io.read_file(storage_agents_index_path()));
+}
+
+fn storage_print_agent(name: str) -> i32 {
+    storage_init();
+    if (!storage_agent_exists(name)) {
+        return 1;
+    }
+    std.print(file_io.read_file(storage_agent_path(name)));
+    return 0;
+}
+
+fn storage_status_text() -> str {
+    storage_init();
+    return "home=" + storage_root() + "\nagent=" + storage_get_active_agent() + "\nmodel=" + storage_get_active_model() + "\n";
 }

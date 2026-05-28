@@ -3,6 +3,7 @@ module conductor_tests;
 import ../lib/std std;
 
 import ../src/ai_api;
+import ../src/storage;
 
 fn assert_true(ok: bool, name: str) -> i32 {
     if (!ok) {
@@ -19,6 +20,13 @@ fn main() -> i32 {
     failures = failures + assert_true(ai_model_count("openrouter-placeholder") == 3, "default model count");
     failures = failures + assert_true(std.contains(ai_placeholder_response("hello", "", ""), "hello"), "placeholder response echoes prompt");
     failures = failures + assert_true(std.contains(ai_openapi_placeholder(), "Conductor API"), "openapi placeholder title");
+    failures = failures + assert_true(storage_permission_exists("bash"), "bash permission exists");
+    failures = failures + assert_true(storage_permission_set("bash", "deny") == 0, "bash permission can be denied");
+    failures = failures + assert_true(storage_permission_get("bash") == "deny", "bash permission persists");
+    storage_permissions_reset();
+    let agent_name: str = storage_new_session_id();
+    failures = failures + assert_true(storage_create_agent(agent_name, "test desc", "all", "read") == 0, "agent create");
+    failures = failures + assert_true(storage_set_active_agent(agent_name) == 0, "agent use");
     if (failures == 0) {
         std.print("All Conductor Novus tests passed.");
         return 0;

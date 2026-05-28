@@ -51,13 +51,19 @@ fn ui_help() -> void {
     std.print("  conductor <command> [options]");
     std.print("");
     std.print("Core commands:");
+    std.print("  chat                            Open the interactive terminal agent shell");
     std.print("  run [message..]                 Run a placeholder AI coding session");
     std.print("  models [provider] [--verbose]   List available placeholder models");
     std.print("  providers                       List configured placeholder providers");
-    std.print("  agent create|list               Manage agent presets");
+    std.print("  agent create|list|use|show      Manage agent presets");
+    std.print("  permission list|allow|deny|ask  Manage tool permissions");
     std.print("  mcp list|add                    Manage MCP server placeholders");
     std.print("  session list|delete             Manage local sessions");
     std.print("  config check|path               Inspect Conductor configuration");
+    std.print("  status                          Show active agent/model and local state");
+    std.print("  tools                           List tool surfaces and permission state");
+    std.print("  doctor                          Check local Conductor/Novus setup");
+    std.print("  init                            Create local Conductor project files");
     std.print("  stats                           Show local usage statistics");
     std.print("  import <file>                   Import a session transcript");
     std.print("  export [file]                   Export local session index");
@@ -72,6 +78,43 @@ fn ui_help() -> void {
     std.print("  --file path                     Attach file content to prompt");
     std.print("  --dir path                      Run command from directory when supported");
     std.print("  --format json                   Emit simple JSON where supported");
+    std.print("");
+    std.print("Interactive slash commands:");
+    std.print("  /help, /status, /model, /agent, /permissions, /tools, /sessions");
+    std.print("  /agent use NAME, /permission allow TOOL, /permission deny TOOL");
+    std.print("  /clear, /init, /exit");
+}
+
+fn ui_shell_help() -> void {
+    std.print("Slash commands");
+    std.print("--------------");
+    std.print("/help                         Show this command palette");
+    std.print("/status                       Show current model, agent, data directory");
+    std.print("/model [provider/model]       Show or switch the active model");
+    std.print("/models [provider]            List placeholder models");
+    std.print("/providers                    List placeholder providers");
+    std.print("/agent list                   List agents");
+    std.print("/agent create NAME DESC       Create an agent");
+    std.print("/agent use NAME               Switch active agent");
+    std.print("/agent show NAME              Show agent details");
+    std.print("/permissions                  List tool permissions");
+    std.print("/permission allow TOOL        Allow a tool");
+    std.print("/permission deny TOOL         Deny a tool");
+    std.print("/permission ask TOOL          Ask before a tool");
+    std.print("/permission reset             Reset defaults");
+    std.print("/tools                        Show tool surfaces");
+    std.print("/sessions                     List sessions");
+    std.print("/init                         Create AGENTS.md and .conductor/");
+    std.print("/clear                        Add visual space");
+    std.print("/exit                         Leave Conductor");
+}
+
+fn ui_shell_banner(agent: str, model: str) -> void {
+    ui_logo();
+    std.print("");
+    std.print("Terminal agent shell. Type a request, or /help for commands.");
+    std.print("agent=" + agent + "  model=" + model);
+    std.print("");
 }
 
 fn ui_version() -> void {

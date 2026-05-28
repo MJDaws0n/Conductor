@@ -3,6 +3,7 @@ module conductor_commands;
 import ../lib/std std;
 import ../lib/file_io file_io;
 import ../lib/env env;
+import ../lib/process process;
 
 import ui;
 import storage;
@@ -50,8 +51,8 @@ fn collect_message(argc: i32, argv: u64, start: i32) -> str {
 
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
-    let model: str = option_value(argc, argv, "--model", "");
-    let agent: str = option_value(argc, argv, "--agent", "");
+    let model: str = option_value(argc, argv, "--model", storage_get_active_model());
+    let agent: str = option_value(argc, argv, "--agent", storage_get_active_agent());
     let file_path: str = option_value(argc, argv, "--file", "");
     let message: str = collect_message(argc, argv, 2);
     if (std.len(file_path) > 0) {
@@ -78,6 +79,14 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     return 0;
 }
 
+fn first_word(line: str) -> str {
+    return std.split_first(std.trim(line), " ");
+}
+
+fn rest_words(line: str) -> str {
+    return std.trim(std.split_rest(std.trim(line), " "));
+}
+
 fn command_models(argc: i32, argv: u64) -> i32 {
     let verbose: bool = has_arg(argc, argv, "--verbose");
     let provider: str = "";
@@ -101,18 +110,77 @@ fn command_agent(argc: i32, argv: u64) -> i32 {
     if (argc >= 3 && arg_at(argv, 2) == "create") {
         let name: str = option_value(argc, argv, "--name", "conductor-agent");
         let desc: str = option_value(argc, argv, "--description", "Placeholder Conductor agent");
-        let dir: str = file_io.path_join(storage_root(), "agents");
-        file_io.mkdirp(dir);
-        let path: str = file_io.path_join(dir, name + ".txt");
-        file_io.write_file(path, "name=" + name + "\ndescription=" + desc + "\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task\n");
-        ui_ok("Agent created at " + path);
+        let rc: i32 = storage_create_agent(name, desc, "all", "read,edit,glob,grep,bash,webfetch,task,mcp");
+        if (rc == 0) { ui_ok("Agent created: " + name); return 0; }
+        if (rc == 2) { ui_error("Agent already exists: " + name); return 1; }
+        ui_error("Agent name is required.");
+        return 1;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "use") {
+        if (argc < 4) { ui_error("Usage: conductor agent use <name>"); return 1; }
+        let rc: i32 = storage_set_active_agent(arg_at(argv, 3));
+        if (rc == 0) { ui_ok("Active agent: " + arg_at(argv, 3)); return 0; }
+        ui_error("Agent not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "show") {
+        let name: str = storage_get_active_agent();
+        if (argc >= 4) { name = arg_at(argv, 3); }
+        let rc: i32 = storage_print_agent(name);
+        if (rc != 0) { ui_error("Agent not found: " + name); }
+        return rc;
+    }
+    if (argc >= 3 && arg_at(argv, 2) == "current") {
+        std.print(storage_get_active_agent());
         return 0;
     }
     if (argc >= 3 && arg_at(argv, 2) == "list") {
-        std.print("conductor-agent | all | placeholder default agent");
+        storage_print_agents();
         return 0;
     }
-    ui_error("Usage: conductor agent create|list");
+    if (argc >= 3 && arg_at(argv, 2) == "delete") {
+        if (argc < 4) { ui_error("Usage: conductor agent delete <name>"); return 1; }
+        let rc: i32 = storage_delete_agent(arg_at(argv, 3));
+        if (rc == 0) { ui_ok("Agent deleted: " + arg_at(argv, 3)); return 0; }
+        if (rc == 2) { ui_error("The default agent cannot be deleted."); return 1; }
+        ui_error("Agent not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    ui_error("Usage: conductor agent create|list|use|show|current|delete");
+    return 1;
+}
+
+fn command_permission(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    if (argc < 3 || arg_at(argv, 2) == "list") {
+        storage_print_permissions();
+        return 0;
+    }
+    if (arg_at(argv, 2) == "reset") {
+        storage_permissions_reset();
+        ui_ok("Permissions reset.");
+        return 0;
+    }
+    if (argc < 4) {
+        ui_error("Usage: conductor permission allow|deny|ask <tool>");
+        return 1;
+    }
+    let action: str = arg_at(argv, 2);
+    let tool: str = arg_at(argv, 3);
+    if (!(action == "allow" || action == "deny" || action == "ask")) {
+        ui_error("Permission action must be allow, deny, ask, list, or reset.");
+        return 1;
+    }
+    let rc: i32 = storage_permission_set(tool, action);
+    if (rc == 0) {
+        ui_ok(tool + " = " + action);
+        return 0;
+    }
+    if (rc == 1) {
+        ui_error("Unknown tool: " + tool);
+        return 1;
+    }
+    ui_error("Unknown permission value: " + action);
     return 1;
 }
 
@@ -184,6 +252,49 @@ fn command_stats() -> i32 {
     return 0;
 }
 
+fn command_status() -> i32 {
+    std.print(storage_status_text());
+    return 0;
+}
+
+fn command_tools() -> i32 {
+    storage_init();
+    std.print("Tool surfaces");
+    std.print("-------------");
+    let i: i32 = 0;
+    while (i < storage_permission_tool_count()) {
+        let tool: str = storage_permission_tool_at(i);
+        std.print(tool + " | permission=" + storage_permission_get(tool));
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn command_doctor() -> i32 {
+    storage_init();
+    ui_header("Conductor doctor");
+    ui_kv("version", conductor_version());
+    ui_kv("home", storage_root());
+    ui_kv("active agent", storage_get_active_agent());
+    ui_kv("active model", storage_get_active_model());
+    std.print("novus: installed");
+    std.print("nox: installed");
+    std.print("ai api: placeholder");
+    return 0;
+}
+
+fn command_init_project() -> i32 {
+    storage_init();
+    if (!file_io.file_exists("AGENTS.md")) {
+        file_io.write_file("AGENTS.md", "# Conductor project instructions\n\nDescribe project conventions, commands, permissions, and agent guidance here.\n");
+        ui_ok("Created AGENTS.md");
+    } else {
+        ui_warn("AGENTS.md already exists.");
+    }
+    ui_ok("Conductor state ready at " + storage_root());
+    return 0;
+}
+
 fn command_export(argc: i32, argv: u64) -> i32 {
     let path: str = "conductor-sessions.txt";
     if (argc >= 3) {
@@ -229,10 +340,140 @@ fn command_remote() -> i32 {
     return 0;
 }
 
+fn shell_run_message(message: str) -> void {
+    let model: str = storage_get_active_model();
+    let agent: str = storage_get_active_agent();
+    std.print("");
+    std.print("You: " + message);
+    std.print("");
+    std.print("Conductor:");
+    let response: str = ai_placeholder_response(message, model, agent);
+    std.print(response);
+    let title: str = message;
+    if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
+    let id: str = storage_record_session(title, message, response);
+    std.print("");
+    std.print("session " + id);
+    std.print("");
+}
+
+fn shell_agent_command(rest: str) -> void {
+    let sub: str = first_word(rest);
+    let args: str = rest_words(rest);
+    if (std.len(sub) == 0 || sub == "list") {
+        storage_print_agents();
+        return;
+    }
+    if (sub == "use") {
+        if (std.len(args) == 0) { ui_error("Usage: /agent use NAME"); return; }
+        let rc: i32 = storage_set_active_agent(first_word(args));
+        if (rc == 0) { ui_ok("Active agent: " + first_word(args)); return; }
+        ui_error("Agent not found: " + first_word(args));
+        return;
+    }
+    if (sub == "show") {
+        let name: str = args;
+        if (std.len(name) == 0) { name = storage_get_active_agent(); }
+        let rc: i32 = storage_print_agent(first_word(name));
+        if (rc != 0) { ui_error("Agent not found: " + first_word(name)); }
+        return;
+    }
+    if (sub == "create") {
+        let name: str = first_word(args);
+        let desc: str = rest_words(args);
+        if (std.len(name) == 0) { ui_error("Usage: /agent create NAME DESCRIPTION"); return; }
+        let final_desc: str = desc;
+        if (std.len(final_desc) == 0) { final_desc = "Interactive Conductor agent"; }
+        let rc: i32 = storage_create_agent(name, final_desc, "all", "read,edit,glob,grep,bash,webfetch,task,mcp");
+        if (rc == 0) { ui_ok("Agent created: " + name); return; }
+        if (rc == 2) { ui_error("Agent already exists: " + name); return; }
+        ui_error("Could not create agent.");
+        return;
+    }
+    ui_error("Usage: /agent list|create|use|show");
+}
+
+fn shell_permission_command(rest: str) -> void {
+    let sub: str = first_word(rest);
+    let tool: str = first_word(rest_words(rest));
+    if (std.len(sub) == 0 || sub == "list") {
+        storage_print_permissions();
+        return;
+    }
+    if (sub == "reset") {
+        storage_permissions_reset();
+        ui_ok("Permissions reset.");
+        return;
+    }
+    if (!(sub == "allow" || sub == "deny" || sub == "ask")) {
+        ui_error("Usage: /permission allow|deny|ask TOOL");
+        return;
+    }
+    let rc: i32 = storage_permission_set(tool, sub);
+    if (rc == 0) { ui_ok(tool + " = " + sub); return; }
+    ui_error("Unknown tool: " + tool);
+}
+
+fn shell_handle_command(line: str) -> bool {
+    let body: str = std.trim(std.substr(line, 1));
+    let cmd: str = first_word(body);
+    let rest: str = rest_words(body);
+    if (cmd == "exit" || cmd == "quit" || cmd == "q") {
+        std.print("Goodbye.");
+        return false;
+    }
+    if (cmd == "help" || cmd == "?") { ui_shell_help(); return true; }
+    if (cmd == "clear") { std.print("\n\n\n\n\n"); return true; }
+    if (cmd == "status") { command_status(); return true; }
+    if (cmd == "tools") { command_tools(); return true; }
+    if (cmd == "sessions" || cmd == "session") { storage_print_sessions(); return true; }
+    if (cmd == "providers") { ai_print_providers(); return true; }
+    if (cmd == "models") { ai_print_models(first_word(rest), false); return true; }
+    if (cmd == "permissions" || cmd == "permission") { shell_permission_command(rest); return true; }
+    if (cmd == "agent") { shell_agent_command(rest); return true; }
+    if (cmd == "model") {
+        if (std.len(rest) == 0) {
+            std.print(storage_get_active_model());
+        } else {
+            storage_set_active_model(first_word(rest));
+            ui_ok("Active model: " + first_word(rest));
+        }
+        return true;
+    }
+    if (cmd == "init") { command_init_project(); return true; }
+    if (cmd == "doctor") { command_doctor(); return true; }
+    if (cmd == "run") { shell_run_message(rest); return true; }
+    ui_error("Unknown slash command: /" + cmd);
+    return true;
+}
+
+fn command_chat() -> i32 {
+    storage_init();
+    ui_shell_banner(storage_get_active_agent(), storage_get_active_model());
+    let running: bool = true;
+    let empty_reads: i32 = 0;
+    while (running) {
+        let line: str = std.trim(std.input("conductor> ", 512));
+        if (std.len(line) == 0) {
+            empty_reads = empty_reads + 1;
+            if (empty_reads >= 3) {
+                std.print("No input received; leaving Conductor.");
+                running = false;
+            }
+        } else if (std.starts_with(line, "/")) {
+            empty_reads = 0;
+            running = shell_handle_command(line);
+        } else {
+            empty_reads = 0;
+            shell_run_message(line);
+        }
+    }
+    return 0;
+}
+
 fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
     if (argc <= 1) {
-        ui_help();
-        return 0;
+        return command_chat();
     }
     let cmd: str = arg_at(argv, 1);
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {
@@ -243,14 +484,20 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
         ui_version();
         return 0;
     }
-    if (cmd == "run") { return command_run(argc, argv); }
+    if (cmd == "chat") { return command_chat(); }
+    if (cmd == "run" || cmd == "prompt") { return command_run(argc, argv); }
     if (cmd == "models") { return command_models(argc, argv); }
     if (cmd == "providers") { return command_providers(); }
     if (cmd == "agent") { return command_agent(argc, argv); }
+    if (cmd == "permission" || cmd == "permissions") { return command_permission(argc, argv); }
     if (cmd == "mcp") { return command_mcp(argc, argv); }
     if (cmd == "session") { return command_session(argc, argv); }
     if (cmd == "config") { return command_config(argc, argv); }
     if (cmd == "stats") { return command_stats(); }
+    if (cmd == "status") { return command_status(); }
+    if (cmd == "tools") { return command_tools(); }
+    if (cmd == "doctor") { return command_doctor(); }
+    if (cmd == "init") { return command_init_project(); }
     if (cmd == "export") { return command_export(argc, argv); }
     if (cmd == "import") { return command_import(argc, argv); }
     if (cmd == "serve") { return command_serve(argc, argv); }
