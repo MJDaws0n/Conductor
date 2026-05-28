@@ -67,6 +67,8 @@ fn provider_get_api_key(provider: str) -> str {
     if (std.len(std.trim(conn_line)) == 0) { return ""; }
     if (std.starts_with(conn_line, "env:")) {
         let var: str = std.trim(std.substr(conn_line, 4));
+        let s: str = storage_env_get(var);
+        if (std.len(std.trim(s)) > 0) { return std.trim(s); }
         return std.trim(env.getenv(var));
     }
     if (std.starts_with(conn_line, "file:")) {
@@ -106,8 +108,9 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
     // Use provider_get_api_key to authenticate
     let key: str = provider_get_api_key(provider);
     if (std.len(std.trim(key)) == 0) {
-        // fallback to env var
-        key = env.getenv("OPENROUTER_API_KEY");
+        // fallback to conductor env store then OS env var
+        key = storage_env_get("OPENROUTER_API_KEY");
+        if (std.len(std.trim(key)) == 0) { key = env.getenv("OPENROUTER_API_KEY"); }
     }
     if (std.len(std.trim(key)) == 0) {
         return "Error: OPENROUTER_API_KEY not set (or provider connection).";

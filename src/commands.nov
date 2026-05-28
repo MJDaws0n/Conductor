@@ -586,9 +586,29 @@ fn shell_handle_command(line: str) -> bool {
         if (std.len(rest) == 0) {
             std.print(storage_get_active_model());
         } else {
-            storage_set_active_model(first_word(rest));
-            ui_ok("Active model: " + first_word(rest));
+            // support specifying provider/model e.g. openrouter/gpt-4o-mini or just model name
+            let m: str = first_word(rest);
+            storage_set_active_model(m);
+            ui_ok("Active model: " + m);
         }
+        return true;
+    }
+    if (cmd == "env") {
+        // /env VAR VALUE  -> set env var for Conductor (persisted to .conductor/env.txt)
+        let parts: str = rest;
+        let name: str = first_word(parts);
+        let val: str = rest_words(parts);
+        if (std.len(name) == 0) { ui_error("Usage: /env VAR VALUE"); return true; }
+        if (std.len(val) == 0) {
+            // print current value (storage override then OS env)
+            let cur: str = storage_env_get(name);
+            if (std.len(std.trim(cur)) == 0) { cur = env.getenv(name); }
+            ui_kv(name, cur);
+            return true;
+        }
+        // persist in conductor env store
+        storage_env_set(name, val);
+        ui_ok("Set env: " + name + " (persisted in " + storage_env_path() + "). To export in your shell, run: export " + name + "='" + val + "'");
         return true;
     }
     if (cmd == "init") { command_init_project(); return true; }

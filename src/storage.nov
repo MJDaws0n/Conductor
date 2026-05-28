@@ -45,6 +45,72 @@ fn storage_active_model_path() -> str {
     return file_io.path_join(storage_root(), "active-model.txt");
 }
 
+fn storage_env_path() -> str {
+    return file_io.path_join(storage_root(), "env.txt");
+}
+
+fn storage_env_get(name: str) -> str {
+    storage_init();
+    let path: str = storage_env_path();
+    if (!file_io.file_exists(path)) { return ""; }
+    let content: str = file_io.read_file(path);
+    let rest: str = content;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let ltrim: str = std.trim(line);
+        if (std.len(ltrim) == 0) { continue; }
+        if (std.starts_with(ltrim, "#")) { continue; }
+        if (std.contains(ltrim, "=")) {
+            let k: str = std.trim(std.split_first(ltrim, "="));
+            let v: str = std.trim(std.split_rest(ltrim, "="));
+            if (k == name) { return v; }
+        }
+    }
+    return "";
+}
+
+fn storage_env_set(name: str, value: str) -> void {
+    storage_init();
+    let path: str = storage_env_path();
+    let content: str = "";
+    if (file_io.file_exists(path)) {
+        content = file_io.read_file(path);
+    }
+    let rest: str = content;
+    let out: str = "";
+    let found: bool = false;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let ltrim: str = std.trim(line);
+        if (std.len(ltrim) == 0) { out = out + line + "\n"; continue; }
+        if (std.starts_with(ltrim, "#")) { out = out + line + "\n"; continue; }
+        if (std.contains(ltrim, "=")) {
+            let k: str = std.trim(std.split_first(ltrim, "="));
+            if (k == name) {
+                out = out + name + "=" + value + "\n";
+                found = true;
+            } else {
+                out = out + ltrim + "\n";
+            }
+        } else {
+            out = out + ltrim + "\n";
+        }
+    }
+    if (!found) {
+        out = out + name + "=" + value + "\n";
+    }
+    file_io.write_file(path, out);
+}
+
+fn storage_env_list() -> str {
+    storage_init();
+    let path: str = storage_env_path();
+    if (!file_io.file_exists(path)) { return ""; }
+    return file_io.read_file(path);
+}
+
 fn storage_permissions_dir() -> str {
     return file_io.path_join(storage_root(), "permissions");
 }
@@ -80,6 +146,10 @@ fn storage_init() -> void {
     if (!file_io.file_exists(default_agent_path)) {
         file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\n");
     }
+    // Ensure env store exists
+    let env_path: str = storage_env_path();
+    if (!file_io.file_exists(env_path)) { file_io.write_file(env_path, ""); }
+
     storage_permissions_bootstrap();
     // Ensure providers exist and set default active provider if missing
     storage_providers_init();
