@@ -76,6 +76,7 @@ conductor providers use myopen
 ```text
 conductor run [message..]
 conductor chat
+conductor orchestrate [task..]
 conductor models [provider] [--verbose]
 conductor providers
 conductor agent create|list|use|show|current|delete

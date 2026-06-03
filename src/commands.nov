@@ -65,6 +65,20 @@ fn build_agent_prompt(message: str, agent: str) -> str {
     return prompt;
 }
 
+fn run_agent_turn(agent: str, task: str, model: str, provider: str) -> str {
+    let model_prompt: str = build_agent_prompt(task, agent);
+    if (ai_provider_exists(provider)) {
+        return ai_run(model_prompt, model, provider);
+    }
+    return ai_placeholder_response(model_prompt, model, agent);
+}
+
+fn print_role_section(title: str, content: str) -> void {
+    std.print("");
+    std.print("## " + title);
+    std.print(content);
+}
+
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
     let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
@@ -282,6 +296,49 @@ fn command_context(argc: i32, argv: u64) -> i32 {
     }
     ui_error("Usage: conductor context show|add|file|clear");
     return 1;
+}
+
+fn command_orchestrate(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
+    if (std.len(std.trim(provider)) == 0) { provider = "openrouter"; }
+    let model: str = option_value(argc, argv, "--model", storage_get_active_model());
+    let message: str = collect_message(argc, argv, 2);
+    if (std.len(std.trim(message)) == 0) {
+        ui_error("Usage: conductor orchestrate <task>");
+        return 1;
+    }
+
+    ui_logo();
+    std.print("");
+    ui_kv("provider", provider);
+    ui_kv("model", model);
+    ui_kv("mode", ai_openrouter_mode());
+
+    let plan_task: str = "Create a short execution plan for this task. Return ordered steps and success checks.\n\nTask:\n" + message;
+    let plan: str = run_agent_turn("orchestrator", plan_task, model, provider);
+    print_role_section("orchestrator", plan);
+
+    let design_task: str = "Turn this plan into concrete implementation notes. Name files, functions, data flow, and tests.\n\nTask:\n" + message + "\n\nPlan:\n" + plan;
+    let design: str = run_agent_turn("designer", design_task, model, provider);
+    print_role_section("designer", design);
+
+    let code_task: str = "Produce the focused code-change approach for this task. Keep it scoped and implementation-ready.\n\nTask:\n" + message + "\n\nPlan:\n" + plan + "\n\nDesign:\n" + design;
+    let code_notes: str = run_agent_turn("coder", code_task, model, provider);
+    print_role_section("coder", code_notes);
+
+    let review_task: str = "Review the proposed implementation. List checks to run, likely risks, and pass/fail criteria.\n\nTask:\n" + message + "\n\nPlan:\n" + plan + "\n\nDesign:\n" + design + "\n\nCoder notes:\n" + code_notes;
+    let review: str = run_agent_turn("reviewer", review_task, model, provider);
+    print_role_section("reviewer", review);
+
+    let transcript: str = "orchestrator:\n" + plan + "\n\ndesigner:\n" + design + "\n\ncoder:\n" + code_notes + "\n\nreviewer:\n" + review;
+    let title: str = "orchestrate: " + message;
+    let final_title: str = title;
+    if (std.len(final_title) > 48) { final_title = std.substr_len(final_title, 0, 48); }
+    let id: str = storage_record_session(final_title, message, transcript);
+    std.print("");
+    ui_kv("session", id);
+    return 0;
 }
 
 fn command_env(argc: i32, argv: u64) -> i32 {
@@ -773,6 +830,10 @@ fn shell_handle_command(line: str) -> bool {
     if (cmd == "init") { command_init_project(); return true; }
     if (cmd == "doctor") { command_doctor(); return true; }
     if (cmd == "run") { shell_run_message(rest); return true; }
+    if (cmd == "orchestrate") {
+        ui_error("/orchestrate is available as a CLI command: conductor orchestrate <task>");
+        return true;
+    }
     ui_error("Unknown slash command: /" + cmd);
     return true;
 }
@@ -835,6 +896,7 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
     }
     if (cmd == "chat") { return command_chat(); }
     if (cmd == "run" || cmd == "prompt") { return command_run(argc, argv); }
+    if (cmd == "orchestrate" || cmd == "plan") { return command_orchestrate(argc, argv); }
     if (cmd == "resume") { return command_resume(argc, argv); }
     if (cmd == "models") { return command_models(argc, argv); }
     if (cmd == "providers") { return command_providers(argc, argv); }

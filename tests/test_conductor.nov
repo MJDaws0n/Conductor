@@ -23,6 +23,7 @@ fn main() -> i32 {
     failures = failures + assert_true(ai_model_count("openrouter-placeholder") == 4, "default model count");
     failures = failures + assert_true(ai_openrouter_mode() == "test", "openrouter defaults to test mode");
     failures = failures + assert_true(std.contains(ai_model_at("openrouter", 0), "deepseek"), "default openrouter model is deepseek");
+    failures = failures + assert_true(storage_get_active_model() == "openrouter/deepseek/deepseek-chat", "active model default migrated");
     failures = failures + assert_true(std.contains(ai_placeholder_response("hello", "", ""), "hello"), "placeholder response echoes prompt");
     failures = failures + assert_true(std.contains(ai_openapi_placeholder(), "Conductor API"), "openapi placeholder title");
     failures = failures + assert_true(storage_permission_exists("bash"), "bash permission exists");
@@ -39,6 +40,7 @@ fn main() -> i32 {
     storage_context_clear();
     storage_context_append("spec", "keep this context");
     failures = failures + assert_true(std.contains(storage_context_get(), "keep this context"), "context persists");
+    failures = failures + assert_true(std.contains(storage_status_text(), "provider=openrouter"), "status includes provider");
 
     // Session behavior tests
     let sid1: str = storage_create_session("test-session-1");
@@ -72,6 +74,10 @@ fn main() -> i32 {
     failures = failures + assert_true(std.contains(run_out, "mocked"), "ai_run returns mocked response when key is MOCK");
     let safe_out: str = ai_run("no credits please", "", "openrouter");
     failures = failures + assert_true(std.contains(safe_out, "credits=0"), "default openrouter run avoids network credits");
+    storage_env_set("CONDUCTOR_OPENROUTER_LIVE", "1");
+    failures = failures + assert_true(ai_openrouter_mode() == "live", "stored live flag enables live mode");
+    storage_env_set("CONDUCTOR_OPENROUTER_TEST", "1");
+    failures = failures + assert_true(ai_openrouter_mode() == "test", "stored test flag overrides live mode");
 
     // Basic ai_tools test: run a bash command (uses global default allow)
     storage_permission_set("bash", "allow");

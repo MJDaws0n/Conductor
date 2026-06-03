@@ -69,7 +69,11 @@ fn ai_openrouter_model_name(model: str) -> str {
 }
 
 fn ai_openrouter_mock_response(prompt: str, model: str, provider: str) -> str {
-    return "Conductor OpenRouter test response (mocked=true, network=false, credits=0)\nprovider=" + provider + "\nmodel=" + model + "\nPrompt received: " + prompt;
+    let preview: str = prompt;
+    if (std.len(preview) > 1200) {
+        preview = std.substr_len(preview, 0, 1200) + "\n[truncated test prompt chars=" + std.to_str(std.len(prompt)) + "]";
+    }
+    return "Conductor OpenRouter test response (mocked=true, network=false, credits=0)\nprovider=" + provider + "\nmodel=" + model + "\nPrompt received: " + preview;
 }
 
 fn ai_print_providers() -> void {

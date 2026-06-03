@@ -188,6 +188,28 @@ fn storage_init() -> void {
     if (!file_io.file_exists(storage_active_provider_path())) {
         file_io.write_file(storage_active_provider_path(), "openrouter");
     }
+    storage_migrate_defaults();
+}
+
+fn storage_migrate_defaults() -> void {
+    if (file_io.file_exists(storage_active_model_path())) {
+        let active_model: str = std.trim(file_io.read_file(storage_active_model_path()));
+        if (active_model == "openrouter-placeholder/conductor-dev") {
+            file_io.write_file(storage_active_model_path(), "openrouter/deepseek/deepseek-chat");
+        }
+    }
+    if (file_io.file_exists(storage_active_provider_path())) {
+        let active_provider: str = std.trim(file_io.read_file(storage_active_provider_path()));
+        if (active_provider == "openrouter-placeholder") {
+            file_io.write_file(storage_active_provider_path(), "openrouter");
+        }
+    }
+    if (file_io.file_exists(storage_config_path())) {
+        let cfg: str = file_io.read_file(storage_config_path());
+        if (std.contains(cfg, "openrouter-placeholder/conductor-dev")) {
+            file_io.write_file(storage_config_path(), "provider=openrouter\nmodel=openrouter/deepseek/deepseek-chat\n");
+        }
+    }
 }
 
 fn storage_seed_agent(name: str, desc: str, mode: str, perms: str, prompt: str) -> void {
@@ -731,5 +753,6 @@ fn storage_print_agent(name: str) -> i32 {
 
 fn storage_status_text() -> str {
     storage_init();
-    return "home=" + storage_root() + "\nagent=" + storage_get_active_agent() + "\nmodel=" + storage_get_active_model() + "\n";
+    let context: str = storage_context_get();
+    return "home=" + storage_root() + "\nagent=" + storage_get_active_agent() + "\nmodel=" + storage_get_active_model() + "\nprovider=" + storage_get_active_provider() + "\ncontext_chars=" + std.to_str(std.len(context)) + "\n";
 }
