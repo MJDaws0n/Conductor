@@ -105,7 +105,7 @@ fn provider_get_api_key(provider: str) -> str {
 }
 
 fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
-    // Use provider_get_api_key to authenticate
+    // Use provider_get_api_key to authenticate (supports env:, file:, gpg:, keyring:)
     let key: str = provider_get_api_key(provider);
     if (std.len(std.trim(key)) == 0) {
         // fallback to conductor env store then OS env var
@@ -115,6 +115,7 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
     if (std.len(std.trim(key)) == 0) {
         return "Error: OPENROUTER_API_KEY not set (or provider connection).";
     }
+
     // treat key value "MOCK" as a mock trigger
     let ktrim: str = std.trim(key);
     if (std.len(ktrim) > 0) {
@@ -130,12 +131,52 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
             return "{\"mocked\":true, \"prompt\": \"" + std.replace(prompt, "\"", "\\\"") + "\"}";
         }
     }
-    let url: str = "https://api.openrouter.ai/v1/requests";
-    let payload: str = "{\"model\": \"" + model + "\", \"input\": \"" + std.replace(prompt, "\"", "\\\"") + "\" }";
-    // Use process.shell_output to call curl
-    let cmd: str = "curl -s -X POST " + url + " -H 'Authorization: Bearer " + key + "' -H 'Content-Type: application/json' -d '" + payload + "'";
+
+    // Use the correct OpenRouter API endpoint
+    let url: str = "https://openrouter.ai/api/v1/responses";
+
+    // Some callers use a provider-prefixed model like "openrouter/gpt-4o-mini"; strip the prefix for OpenRouter API
+    if (std.starts_with(model, "openrouter/")) { model = std.substr(model, 11); }
+
+    // Build payload. Escape double-quotes in the prompt for JSON
+    let safe_input: str = std.replace(prompt, "\"", "\\\"");
+    let payload: str = "{\"model\": \"" + model + "\", \"input\": \"" + safe_input + "\"}";
+
+    // Escape single quotes for safe shell single-quoting
+    let payload_escaped: str = std.replace(payload, "'", "'\"'\"'");
+
+    // Append a sentinel so the HTTP status code can be extracted reliably
+    let sentinel: str = ":::HTTP_CODE:::";
+    let cmd: str = "curl -sS -X POST " + url + " -H 'Authorization: Bearer " + key + "' -H 'Content-Type: application/json' -d '" + payload_escaped + "' -m 30 -w '\n" + sentinel + "%{http_code}'";
     let out: str = process.shell_output(cmd, 65536);
-    return out;
+
+    // Parse curl output: body lines followed by a sentinel line with HTTP code
+    let rest: str = out;
+    let body: str = "";
+    let http_code: i32 = 0;
+    let found: bool = false;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (std.starts_with(line, sentinel)) {
+            let code_str: str = std.trim(std.substr(line, std.len(sentinel)));
+            http_code = std.to_i32(code_str);
+            found = true;
+            break;
+        } else {
+            if (std.len(body) > 0) { body = body + "\n"; }
+            body = body + line;
+        }
+    }
+
+    if (!found) {
+        // Fallback: return raw curl output
+        return out;
+    }
+    if (http_code >= 200 && http_code < 300) {
+        return body;
+    }
+    return "Error: HTTP " + std.to_str(http_code) + " - " + body;
 }
 
 fn ai_run(prompt: str, model: str, provider: str) -> str {
