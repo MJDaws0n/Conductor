@@ -1,16 +1,20 @@
 # Conductor
 
-Conductor is a CLI-only Novus/Nox rebuild target for Kilo Code-style workflows. It is designed as a terminal-first agent app in the same broad family as Copilot CLI, Codex CLI, Claude Code, Aider, and Kilo/OpenCode.
+Conductor is a CLI-only Novus/Nox terminal agent for coding, planning, tool use, and local session management.
 
-The current implementation is a Novus-native terminal shell with placeholder AI API behavior. The placeholder controller lives in `src/ai_api.nov` so OpenRouter support can be wired in later without changing the command surface.
-
-Run `conductor` with no arguments, or `conductor chat`, to open the normal terminal shell. Type requests to send a placeholder AI turn, or use slash commands such as `/help`, `/agent`, `/model`, `/permissions`, `/tools`, `/sessions`, `/status`, and `/exit`.
+The app runs in OpenRouter test mode by default. Test mode is deterministic, uses no network call, and spends no OpenRouter credits. Live OpenRouter calls require an explicit opt-in flag plus an API key.
 
 ## Build
 
 ```sh
-nox update
+./scripts/bootstrap_deps.sh
 novus main.nov
+```
+
+On macOS ARM64 the binary is emitted at:
+
+```sh
+./build/darwin_arm64/conductor
 ```
 
 On Linux x86_64 the binary is emitted at:
@@ -22,9 +26,49 @@ On Linux x86_64 the binary is emitted at:
 ## Test
 
 ```sh
+./scripts/bootstrap_deps.sh
 novus tests/test_conductor.nov
-./build/linux_x86_64/conductor_tests
+./build/darwin_arm64/conductor_tests
 ./run_smoke_tests.sh
+```
+
+Use the platform-specific test binary under `build/` if you are not on macOS ARM64.
+
+## OpenRouter
+
+Default mode is safe for local development and CI:
+
+```sh
+conductor run "write a test"
+```
+
+Expected response includes:
+
+```text
+mocked=true
+credits=0
+```
+
+To make a real OpenRouter request:
+
+```sh
+conductor env OPENROUTER_API_KEY "sk_..."
+conductor env CONDUCTOR_OPENROUTER_LIVE 1
+conductor run "summarize this repo"
+```
+
+Force test mode even if live flags exist:
+
+```sh
+conductor env CONDUCTOR_OPENROUTER_TEST 1
+```
+
+Provider keys can be configured with Conductor-stored environment values, files, GPG, or OS keyrings:
+
+```sh
+conductor providers add --name myopen --kind openrouter --conn env:MY_OPENROUTER_KEY
+conductor env MY_OPENROUTER_KEY "sk_..."
+conductor providers use myopen
 ```
 
 ## Commands
@@ -35,9 +79,11 @@ conductor chat
 conductor models [provider] [--verbose]
 conductor providers
 conductor agent create|list|use|show|current|delete
+conductor context show|add|file|clear
+conductor env [NAME [VALUE]]
 conductor permission list|allow|deny|ask|reset
 conductor mcp list|add
-conductor session list|delete
+conductor session list|delete|resume|cleanup
 conductor config check|path
 conductor status
 conductor tools
@@ -52,58 +98,31 @@ conductor version
 conductor help
 ```
 
-## Interactive shell
+## Interactive Shell
 
 ```text
 Conductor terminal agent shell
-agent=conductor-agent  model=openrouter-placeholder/conductor-dev
+agent=conductor-agent  model=openrouter/deepseek/deepseek-chat
 Type /help for commands or just type a prompt.
-conductor> /agent
 conductor> /agent use reviewer
+conductor> /context add spec Use project tests before final answers
 conductor> Explain this project structure
 conductor> /exit
 ```
 
-Available slash-command groups:
+Seeded specialist agents:
 
 ```text
-/help
-/status
-/model [provider/model]
-/models [provider]
-/providers
-/agent list|create|use|show
-/permissions
-/permission allow|deny|ask|reset
-/tools
-/sessions
-/init
-/doctor
-/clear
-/exit
+orchestrator
+designer
+coder
+reviewer
 ```
 
-Local state is stored in `.conductor/` by default. Set `CONDUCTOR_HOME` to use another data directory.
+Local state is stored in `.conductor/` by default. Add `--home /path/to/data` to use another data directory.
 
-OpenRouter & providers
+## Tools
 
-- Configure an OpenRouter API key in your environment: `export OPENROUTER_API_KEY="sk_..."`
-- Or add a provider: `conductor providers add myopen openrouter env:MY_OPENROUTER_KEY` and then `conductor providers use myopen`.
-- Encrypted local keys supported via `gpg:/path/to/key.gpg` (Conductor will run `gpg --decrypt` to read the key).
-- OS keyring supported via `keyring:<name>` (Conductor will try libsecret's `secret-tool lookup conductor <name>` on Linux, or `security find-generic-password -s conductor -a <name> -w` on macOS).
-  - Store on Linux (libsecret):
-    ```sh
-    secret-tool store conductor mykey
-    # then paste the secret when prompted
-    ```
-  - Store on macOS:
-    ```sh
-    security add-generic-password -s conductor -a mykey -w "THE_SECRET"
-    ```
-- Preference: environment variables are recommended for automation and CI.
-
-Tools & auto-run
-
-- AI responses that include lines starting with `TOOL: <tool> <args>` will auto-execute allowed tools (subject to permissions).
+- AI responses that include lines starting with `TOOL: <tool> <args>` execute allowed tools subject to permissions.
 - Run tools manually: `conductor tool run bash "ls -la"`.
-- Audit log: `.conductor/audit.log` records executed tool actions.
+- Audit log: `.conductor/audit.log` records tool actions.

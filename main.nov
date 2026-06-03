@@ -10,5 +10,7 @@ import src/ai_api;
 import src/commands;
 
 fn main(argc: i32, argv: u64) -> i32 {
-    return conductor_dispatch(argc, argv);
+    let rc: i32 = conductor_dispatch(argc, argv);
+    storage_set_home_override("");
+    return rc;
 }

@@ -20,7 +20,9 @@ fn assert_true(ok: bool, name: str) -> i32 {
 fn main() -> i32 {
     let failures: i32 = 0;
     failures = failures + assert_true(ai_provider_exists("openrouter-placeholder"), "default provider exists");
-    failures = failures + assert_true(ai_model_count("openrouter-placeholder") == 3, "default model count");
+    failures = failures + assert_true(ai_model_count("openrouter-placeholder") == 4, "default model count");
+    failures = failures + assert_true(ai_openrouter_mode() == "test", "openrouter defaults to test mode");
+    failures = failures + assert_true(std.contains(ai_model_at("openrouter", 0), "deepseek"), "default openrouter model is deepseek");
     failures = failures + assert_true(std.contains(ai_placeholder_response("hello", "", ""), "hello"), "placeholder response echoes prompt");
     failures = failures + assert_true(std.contains(ai_openapi_placeholder(), "Conductor API"), "openapi placeholder title");
     failures = failures + assert_true(storage_permission_exists("bash"), "bash permission exists");
@@ -30,6 +32,13 @@ fn main() -> i32 {
     let agent_name: str = storage_new_session_id();
     failures = failures + assert_true(storage_create_agent(agent_name, "test desc", "all", "read") == 0, "agent create");
     failures = failures + assert_true(storage_set_active_agent(agent_name) == 0, "agent use");
+    failures = failures + assert_true(storage_agent_exists("orchestrator"), "orchestrator seeded");
+    failures = failures + assert_true(storage_agent_exists("designer"), "designer seeded");
+    failures = failures + assert_true(storage_agent_exists("coder"), "coder seeded");
+    failures = failures + assert_true(storage_agent_exists("reviewer"), "reviewer seeded");
+    storage_context_clear();
+    storage_context_append("spec", "keep this context");
+    failures = failures + assert_true(std.contains(storage_context_get(), "keep this context"), "context persists");
 
     // Session behavior tests
     let sid1: str = storage_create_session("test-session-1");
@@ -61,8 +70,11 @@ fn main() -> i32 {
     let run_out: str = ai_run("hello world", "", "openrouter-test");
     std.print("AI RUN OUT: " + run_out);
     failures = failures + assert_true(std.contains(run_out, "mocked"), "ai_run returns mocked response when key is MOCK");
+    let safe_out: str = ai_run("no credits please", "", "openrouter");
+    failures = failures + assert_true(std.contains(safe_out, "credits=0"), "default openrouter run avoids network credits");
 
     // Basic ai_tools test: run a bash command (uses global default allow)
+    storage_permission_set("bash", "allow");
     let tool_out: str = ai_execute_tool("bash", "echo tool_test");
     failures = failures + assert_true(std.contains(tool_out, "tool_test"), "ai_execute_tool bash works");
 

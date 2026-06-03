@@ -51,9 +51,24 @@ fn collect_message(argc: i32, argv: u64, start: i32) -> str {
     return out;
 }
 
+fn build_agent_prompt(message: str, agent: str) -> str {
+    let prompt: str = "";
+    let agent_prompt: str = storage_agent_prompt(agent);
+    let context: str = storage_context_get();
+    if (std.len(std.trim(agent_prompt)) > 0) {
+        prompt = prompt + "Agent instructions:\n" + agent_prompt + "\n\n";
+    }
+    if (std.len(std.trim(context)) > 0) {
+        prompt = prompt + "Project context:\n" + context + "\n";
+    }
+    prompt = prompt + "User request:\n" + message;
+    return prompt;
+}
+
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
-    let provider: str = option_value(argc, argv, "--provider", "openrouter");
+    let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
+    if (std.len(std.trim(provider)) == 0) { provider = "openrouter"; }
     let model: str = option_value(argc, argv, "--model", storage_get_active_model());
     let agent: str = option_value(argc, argv, "--agent", storage_get_active_agent());
     let file_path: str = option_value(argc, argv, "--file", "");
@@ -69,10 +84,11 @@ fn command_run(argc: i32, argv: u64) -> i32 {
         message = std.input("Message: ", 4096);
     }
     let response: str = "";
+    let model_prompt: str = build_agent_prompt(message, agent);
     if (ai_provider_exists(provider)) {
-        response = ai_run(message, model, provider);
+        response = ai_run(model_prompt, model, provider);
     } else {
-        response = ai_placeholder_response(message, model, agent);
+        response = ai_placeholder_response(model_prompt, model, agent);
     }
     ui_logo();
     std.print("");
@@ -171,7 +187,7 @@ fn command_agent(argc: i32, argv: u64) -> i32 {
     if (argc >= 3) {
         if (arg_at(argv, 2) == "create") {
             let name: str = option_value(argc, argv, "--name", "conductor-agent");
-            let desc: str = option_value(argc, argv, "--description", "Placeholder Conductor agent");
+            let desc: str = option_value(argc, argv, "--description", "Conductor agent");
             let rc: i32 = storage_create_agent(name, desc, "all", "read,edit,glob,grep,bash,webfetch,task,mcp");
             if (rc == 0) { ui_ok("Agent created: " + name); return 0; }
             if (rc == 2) { ui_error("Agent already exists: " + name); return 1; }
@@ -221,6 +237,71 @@ fn command_agent(argc: i32, argv: u64) -> i32 {
     }
     ui_error("Usage: conductor agent create|list|use|show|current|delete");
     return 1;
+}
+
+fn command_context(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    if (argc < 3) {
+        let content: str = storage_context_get();
+        if (std.len(std.trim(content)) == 0) { std.print("No context saved."); return 0; }
+        std.print(content);
+        return 0;
+    }
+    let sub: str = arg_at(argv, 2);
+    if (sub == "show" || sub == "list") {
+        let content: str = storage_context_get();
+        if (std.len(std.trim(content)) == 0) { std.print("No context saved."); return 0; }
+        std.print(content);
+        return 0;
+    }
+    if (sub == "clear") {
+        storage_context_clear();
+        ui_ok("Context cleared.");
+        return 0;
+    }
+    if (sub == "add") {
+        let label: str = "note";
+        let start: i32 = 3;
+        if (argc >= 5) {
+            label = arg_at(argv, 3);
+            start = 4;
+        }
+        let text: str = collect_message(argc, argv, start);
+        if (std.len(std.trim(text)) == 0) { ui_error("Usage: conductor context add [label] <text>"); return 1; }
+        storage_context_append(label, text);
+        ui_ok("Context added: " + label);
+        return 0;
+    }
+    if (sub == "file") {
+        if (argc < 4) { ui_error("Usage: conductor context file <path>"); return 1; }
+        let path: str = arg_at(argv, 3);
+        if (!file_io.file_exists(path)) { ui_error("File not found: " + path); return 1; }
+        storage_context_append(path, file_io.read_file(path));
+        ui_ok("Context file added: " + path);
+        return 0;
+    }
+    ui_error("Usage: conductor context show|add|file|clear");
+    return 1;
+}
+
+fn command_env(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    if (argc < 3) {
+        let content: str = storage_env_list();
+        if (std.len(std.trim(content)) == 0) { std.print("No stored environment values."); return 0; }
+        std.print(content);
+        return 0;
+    }
+    let name: str = arg_at(argv, 2);
+    if (argc < 4) {
+        let cur: str = storage_env_get(name);
+        std.print(cur);
+        return 0;
+    }
+    let value: str = collect_message(argc, argv, 3);
+    storage_env_set(name, value);
+    ui_ok("Stored env: " + name);
+    return 0;
 }
 
 fn command_permission(argc: i32, argv: u64) -> i32 {
@@ -387,9 +468,11 @@ fn command_doctor() -> i32 {
     ui_kv("home", storage_root());
     ui_kv("active agent", storage_get_active_agent());
     ui_kv("active model", storage_get_active_model());
+    ui_kv("active provider", storage_get_active_provider());
+    ui_kv("openrouter mode", ai_openrouter_mode());
     std.print("novus: installed");
     std.print("nox: installed");
-    std.print("ai api: placeholder");
+    std.print("ai api: openrouter chat completions");
     return 0;
 }
 
@@ -435,8 +518,8 @@ fn command_import(argc: i32, argv: u64) -> i32 {
 
 fn command_serve(argc: i32, argv: u64) -> i32 {
     let port: str = option_value(argc, argv, "--port", "4096");
-    ui_warn("Headless server is a placeholder until Novus HTTP/runtime support is expanded.");
-    std.print("conductor server placeholder listening on http://127.0.0.1:" + port);
+    ui_warn("Headless server waits for expanded Novus HTTP/runtime support.");
+    std.print("conductor server configured for http://127.0.0.1:" + port);
     return 0;
 }
 
@@ -446,7 +529,7 @@ fn command_generate() -> i32 {
 }
 
 fn command_remote() -> i32 {
-    ui_warn("Remote/cloud session support is intentionally deferred behind the placeholder AI API controller.");
+    ui_warn("Remote/cloud session support is deferred behind the provider controller.");
     return 0;
 }
 
@@ -471,10 +554,11 @@ fn shell_run_message(message: str) -> void {
     // Use the active provider (openrouter) when available so persisted keys are used
     let provider: str = storage_get_active_provider();
     let response: str = "";
+    let model_prompt: str = build_agent_prompt(message, agent);
     if (ai_provider_exists(provider)) {
-        response = ai_run(message, model, provider);
+        response = ai_run(model_prompt, model, provider);
     } else {
-        response = ai_placeholder_response(message, model, agent);
+        response = ai_placeholder_response(model_prompt, model, agent);
     }
     std.print("Conductor: " + response);
     // Auto-execute any TOOL directives in response
@@ -634,6 +718,27 @@ fn shell_handle_command(line: str) -> bool {
         return true;
     }
     if (cmd == "models") { ai_print_models(first_word(rest), false); return true; }
+    if (cmd == "context") {
+        let sub: str = first_word(rest);
+        let args: str = rest_words(rest);
+        if (std.len(sub) == 0 || sub == "show" || sub == "list") {
+            let content: str = storage_context_get();
+            if (std.len(std.trim(content)) == 0) { std.print("No context saved."); } else { std.print(content); }
+            return true;
+        }
+        if (sub == "clear") { storage_context_clear(); ui_ok("Context cleared."); return true; }
+        if (sub == "add") {
+            let label: str = first_word(args);
+            let text: str = rest_words(args);
+            if (std.len(std.trim(text)) == 0) { text = label; label = "note"; }
+            if (std.len(std.trim(text)) == 0) { ui_error("Usage: /context add [label] <text>"); return true; }
+            storage_context_append(label, text);
+            ui_ok("Context added: " + label);
+            return true;
+        }
+        ui_error("Usage: /context show|add|clear");
+        return true;
+    }
     if (cmd == "permissions" || cmd == "permission") { shell_permission_command(rest); return true; }
     if (cmd == "agent") { shell_agent_command(rest); return true; }
     if (cmd == "model") {
@@ -654,9 +759,9 @@ fn shell_handle_command(line: str) -> bool {
         let val: str = rest_words(parts);
         if (std.len(name) == 0) { ui_error("Usage: /env VAR VALUE"); return true; }
         if (std.len(val) == 0) {
-            // print current value (storage override then OS env)
+            // print current value from Conductor's stored env file
             let cur: str = storage_env_get(name);
-            if (std.len(std.trim(cur)) == 0) { cur = env.getenv(name); }
+            if (std.len(std.trim(cur)) == 0) { cur = storage_process_env_get(name); }
             ui_kv(name, cur);
             return true;
         }
@@ -715,6 +820,7 @@ fn command_resume(argc: i32, argv: u64) -> i32 {
 }
 
 fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
+    storage_set_home_override(option_value(argc, argv, "--home", ""));
     if (argc <= 1) {
         return command_chat();
     }
@@ -736,6 +842,8 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
     if (cmd == "permission" || cmd == "permissions") { return command_permission(argc, argv); }
     if (cmd == "mcp") { return command_mcp(argc, argv); }
     if (cmd == "session") { return command_session(argc, argv); }
+    if (cmd == "context") { return command_context(argc, argv); }
+    if (cmd == "env") { return command_env(argc, argv); }
     if (cmd == "config") { return command_config(argc, argv); }
     if (cmd == "stats") { return command_stats(); }
     if (cmd == "status") { return command_status(); }

@@ -5,8 +5,31 @@ import ../lib/file_io file_io;
 import ../lib/env env;
 import ../lib/time time;
 
+fn storage_home_override_path() -> str {
+    return ".conductor-home-" + std.to_str(env.getpid());
+}
+
+fn storage_set_home_override(path: str) -> void {
+    let clean: str = std.trim(path);
+    if (std.len(clean) == 0) {
+        if (file_io.file_exists(storage_home_override_path())) {
+            file_io.file_delete(storage_home_override_path());
+        }
+        return;
+    }
+    file_io.write_file(storage_home_override_path(), clean);
+}
+
+fn storage_process_env_get(name: str) -> str {
+    return "";
+}
+
 fn storage_root() -> str {
-    let configured: str = env.getenv("CONDUCTOR_HOME");
+    if (file_io.file_exists(storage_home_override_path())) {
+        let override_path: str = std.trim(file_io.read_file(storage_home_override_path()));
+        if (std.len(override_path) > 0) { return override_path; }
+    }
+    let configured: str = storage_process_env_get("CONDUCTOR_HOME");
     if (std.len(configured) > 0) {
         return configured;
     }
@@ -47,6 +70,10 @@ fn storage_active_model_path() -> str {
 
 fn storage_env_path() -> str {
     return file_io.path_join(storage_root(), "env.txt");
+}
+
+fn storage_context_path() -> str {
+    return file_io.path_join(storage_root(), "context.txt");
 }
 
 fn storage_env_get(name: str) -> str {
@@ -125,7 +152,7 @@ fn storage_init() -> void {
     file_io.mkdirp(storage_agents_dir());
     file_io.mkdirp(storage_permissions_dir());
     if (!file_io.file_exists(storage_config_path())) {
-        file_io.write_file(storage_config_path(), "provider=openrouter-placeholder\nmodel=openrouter-placeholder/conductor-dev\n");
+        file_io.write_file(storage_config_path(), "provider=openrouter\nmodel=openrouter/deepseek/deepseek-chat\n");
     }
     if (!file_io.file_exists(storage_session_index_path())) {
         file_io.write_file(storage_session_index_path(), "");
@@ -137,24 +164,42 @@ fn storage_init() -> void {
         file_io.write_file(storage_active_agent_path(), "conductor-agent");
     }
     if (!file_io.file_exists(storage_active_model_path())) {
-        file_io.write_file(storage_active_model_path(), "openrouter-placeholder/conductor-dev");
+        file_io.write_file(storage_active_model_path(), "openrouter/deepseek/deepseek-chat");
     }
     if (!file_io.file_exists(storage_agents_index_path())) {
         file_io.write_file(storage_agents_index_path(), "conductor-agent | all | Default terminal coding agent\n");
     }
     let default_agent_path: str = file_io.path_join(storage_agents_dir(), "conductor-agent.txt");
     if (!file_io.file_exists(default_agent_path)) {
-        file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\n");
+        file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\nsystem_prompt=You are Conductor, a terminal-first coding agent. Plan briefly, edit carefully, run checks, and keep tool use within configured permissions.\n");
     }
+    storage_seed_agent("orchestrator", "Plans tasks, chooses next specialist, and decides when work is complete", "plan", "read,glob,grep,task,mcp", "Maintain global task state, break work into small steps, choose designer/coder/reviewer handoffs, and stop when acceptance criteria are met.");
+    storage_seed_agent("designer", "Turns plans into concrete file-level implementation steps", "design", "read,glob,grep", "Convert goals into architecture notes, target files, interfaces, and patch outlines. Do not write final code.");
+    storage_seed_agent("coder", "Applies small focused code changes from a design", "code", "read,edit,write,glob,grep,bash", "Implement scoped changes, preserve local style, avoid unrelated edits, and return concise implementation notes.");
+    storage_seed_agent("reviewer", "Runs checks and reports defects or approval", "review", "read,glob,grep,bash", "Run relevant tests or static checks, identify regressions, and report clear pass/fail feedback.");
     // Ensure env store exists
     let env_path: str = storage_env_path();
     if (!file_io.file_exists(env_path)) { file_io.write_file(env_path, ""); }
+    if (!file_io.file_exists(storage_context_path())) { file_io.write_file(storage_context_path(), ""); }
 
     storage_permissions_bootstrap();
     // Ensure providers exist and set default active provider if missing
     storage_providers_init();
     if (!file_io.file_exists(storage_active_provider_path())) {
         file_io.write_file(storage_active_provider_path(), "openrouter");
+    }
+}
+
+fn storage_seed_agent(name: str, desc: str, mode: str, perms: str, prompt: str) -> void {
+    let path: str = storage_agent_path(name);
+    if (!file_io.file_exists(path)) {
+        file_io.write_file(path, "name=" + name + "\ndescription=" + desc + "\nmode=" + mode + "\npermissions=" + perms + "\nsystem_prompt=" + prompt + "\n");
+    }
+    let index_path: str = storage_agents_index_path();
+    let index: str = "";
+    if (file_io.file_exists(index_path)) { index = file_io.read_file(index_path); }
+    if (!std.contains(index, name + " |")) {
+        file_io.file_append(index_path, name + " | " + mode + " | " + desc + "\n");
     }
 }
 
@@ -488,6 +533,40 @@ fn storage_get_active_agent() -> str {
 fn storage_get_active_model() -> str {
     storage_init();
     return std.trim(file_io.read_file(storage_active_model_path()));
+}
+
+fn storage_context_get() -> str {
+    storage_init();
+    if (!file_io.file_exists(storage_context_path())) { return ""; }
+    return file_io.read_file(storage_context_path());
+}
+
+fn storage_context_append(label: str, content: str) -> void {
+    storage_init();
+    let clean_label: str = std.trim(label);
+    if (std.len(clean_label) == 0) { clean_label = "note"; }
+    file_io.file_append(storage_context_path(), "## " + clean_label + "\n" + content + "\n\n");
+}
+
+fn storage_context_clear() -> void {
+    storage_init();
+    file_io.write_file(storage_context_path(), "");
+}
+
+fn storage_agent_prompt(name: str) -> str {
+    storage_init();
+    if (!storage_agent_exists(name)) { return ""; }
+    let content: str = file_io.read_file(storage_agent_path(name));
+    let rest: str = content;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let tline: str = std.trim(line);
+        if (std.starts_with(tline, "system_prompt=")) {
+            return std.trim(std.substr(tline, 14));
+        }
+    }
+    return "";
 }
 
 fn storage_set_active_agent(name: str) -> i32 {
