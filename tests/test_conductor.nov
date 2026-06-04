@@ -97,6 +97,10 @@ fn main() -> i32 {
     failures = failures + assert_true(storage_mcp_server_create(mcp_name, "python3 scripts/fake_mcp_server.py") == 0, "mcp server create");
     failures = failures + assert_true(std.contains(storage_mcp_server_list(), mcp_name), "mcp server list");
     failures = failures + assert_true(std.contains(storage_mcp_server_get(mcp_name), "fake_mcp_server.py"), "mcp server get");
+    let http_mcp_name: str = "http-mcp-" + storage_new_session_id();
+    failures = failures + assert_true(storage_mcp_server_create_transport(http_mcp_name, "http", "", "http://127.0.0.1:39087/mcp") == 0, "http mcp server create");
+    failures = failures + assert_true(std.contains(storage_mcp_server_get(http_mcp_name), "transport=streamable-http"), "http mcp transport normalized");
+    failures = failures + assert_true(std.contains(storage_mcp_server_list(), "127.0.0.1:39087"), "http mcp server list includes url");
 
     let sid3: str = storage_create_session("ledger-session");
     let original_id: str = storage_record_event(sid3, "original_prompt", "user", "compact test prompt");

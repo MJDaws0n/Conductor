@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Thin MCP stdio client bridge.
+"""Thin MCP client bridge.
 
 Conductor core stays in Novus. This helper only handles external MCP server
-process transport because current Novus process lib has no bidirectional pipe
-API.
+wire transport because current Novus process lib has no bidirectional pipe API.
 """
 
 from __future__ import annotations
@@ -13,6 +12,8 @@ import json
 import select
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -102,6 +103,78 @@ class McpClient:
         time.sleep(0.05)
 
 
+class HttpMcpClient:
+    def __init__(self, url: str, timeout_seconds: float) -> None:
+        self.url = url
+        self.timeout_seconds = timeout_seconds
+        self.next_id = 1
+        self.session_id = ""
+
+    def close(self) -> None:
+        return
+
+    def _decode_response(self, raw: bytes, content_type: str) -> dict:
+        text = raw.decode("utf-8")
+        if "text/event-stream" in content_type or text.lstrip().startswith("event:") or text.lstrip().startswith("data:"):
+            data_lines: list[str] = []
+            for line in text.splitlines():
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].strip())
+            text = "\n".join(data_lines).strip()
+        if not text:
+            return {}
+        return json.loads(text)
+
+    def request(self, method: str, params: dict | None = None) -> dict:
+        msg_id = self.next_id
+        self.next_id += 1
+        payload = {"jsonrpc": "2.0", "id": msg_id, "method": method}
+        if params is not None:
+            payload["params"] = params
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        req = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                session_id = resp.headers.get("Mcp-Session-Id", "")
+                if session_id:
+                    self.session_id = session_id
+                return self._decode_response(resp.read(), resp.headers.get("Content-Type", ""))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"HTTP MCP {method} failed: {exc.code} {detail}") from exc
+
+    def notify(self, method: str, params: dict | None = None) -> None:
+        payload = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            payload["params"] = params
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        req = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
+        try:
+            urllib.request.urlopen(req, timeout=self.timeout_seconds).close()
+        except urllib.error.HTTPError:
+            return
+
+    def initialize(self) -> None:
+        self.request(
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "conductor-mcp-bridge", "version": "0.1.0"},
+            },
+        )
+        self.notify("notifications/initialized")
+
+
 def ok(result: object) -> None:
     print(json.dumps({"ok": True, "result": result}, separators=(",", ":")))
 
@@ -123,10 +196,17 @@ def main() -> int:
 
     try:
         cfg = read_server(Path(args.home), args.server)
+        transport = cfg.get("transport", "stdio")
         command = cfg.get("command", "")
-        if not command:
-            return fail(f"server has no command: {args.server}")
-        client = McpClient(command, args.timeout)
+        url = cfg.get("url", "")
+        if transport in {"streamable-http", "http", "sse"}:
+            if not url:
+                return fail(f"server has no url: {args.server}")
+            client = HttpMcpClient(url, args.timeout)
+        else:
+            if not command:
+                return fail(f"server has no command: {args.server}")
+            client = McpClient(command, args.timeout)
         try:
             client.initialize()
             if args.action == "tools":

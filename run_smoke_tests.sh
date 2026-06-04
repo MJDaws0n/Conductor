@@ -2,6 +2,14 @@
 set -euo pipefail
 
 repo_root="$(pwd)"
+http_pid=""
+cleanup() {
+  if [ -n "${http_pid:-}" ]; then
+    kill "$http_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
 bin="./build/linux_x86_64/conductor"
 if [ ! -x "$bin" ]; then
   bin="./build/linux_amd64/main"
@@ -82,13 +90,25 @@ grep -q "added=1" <<<"$out"
 out="$("$bin" skill context --home "$home")"
 grep -q "Imported skill instructions" <<<"$out"
 
-chmod +x "$repo_root/scripts/mcp_stdio_bridge.py" "$repo_root/scripts/fake_mcp_server.py"
+chmod +x "$repo_root/scripts/mcp_stdio_bridge.py" "$repo_root/scripts/fake_mcp_server.py" "$repo_root/scripts/fake_http_mcp_server.py"
 out="$("$bin" mcp add --name fake --command "python3 $repo_root/scripts/fake_mcp_server.py" --home "$home")"
 grep -q "MCP server added" <<<"$out"
 out="$("$bin" mcp tools fake --home "$home")"
 grep -q "echo" <<<"$out"
 out="$("$bin" mcp call fake echo '{"msg":"hi"}' --home "$home")"
 grep -q "hi" <<<"$out"
+
+http_port="$((39000 + (RANDOM % 1000)))"
+python3 "$repo_root/scripts/fake_http_mcp_server.py" "$http_port" &
+http_pid="$!"
+sleep 0.2
+out="$("$bin" mcp add --name fake-http --url "http://127.0.0.1:$http_port/mcp" --transport streamable-http --home "$home")"
+grep -q "MCP server added" <<<"$out"
+out="$("$bin" mcp tools fake-http --home "$home")"
+grep -q "echo" <<<"$out"
+out="$("$bin" mcp call fake-http echo '{"msg":"http-hi"}' --home "$home")"
+grep -q "http-hi" <<<"$out"
+
 cat >"$codex_home/config.toml" <<EOF
 [mcp_servers.imported_fake]
 command = "python3"
@@ -96,10 +116,16 @@ args = ["$repo_root/scripts/fake_mcp_server.py"]
 
 [mcp_servers.imported_fake.env]
 SMOKE_IMPORT = "1"
+
+[mcp_servers.imported_http]
+url = "http://127.0.0.1:$http_port/mcp"
+transport = "streamable-http"
 EOF
 out="$("$bin" mcp import-codex --codex-home "$codex_home" --home "$home")"
-grep -q "added=1" <<<"$out"
+grep -q "added=2" <<<"$out"
 out="$("$bin" mcp tools imported_fake --home "$home")"
+grep -q "echo" <<<"$out"
+out="$("$bin" mcp tools imported_http --home "$home")"
 grep -q "echo" <<<"$out"
 
 out="$("$bin" orchestrate "control test" --home "$home")"

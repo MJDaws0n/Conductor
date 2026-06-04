@@ -895,14 +895,24 @@ fn storage_enabled_skills_context() -> str {
 }
 
 fn storage_mcp_server_create(name: str, command: str) -> i32 {
+    return storage_mcp_server_create_transport(name, "stdio", command, "");
+}
+
+fn storage_mcp_server_create_transport(name: str, transport: str, command: str, url: str) -> i32 {
     storage_init();
     let clean: str = std.trim(name);
     if (std.len(clean) == 0) { return 1; }
-    if (std.len(std.trim(command)) == 0) { return 3; }
+    let clean_transport: str = std.trim(transport);
+    if (std.len(clean_transport) == 0) { clean_transport = "stdio"; }
+    if (clean_transport == "http") { clean_transport = "streamable-http"; }
+    if (clean_transport == "streamable_http") { clean_transport = "streamable-http"; }
+    if (std.len(std.trim(command)) == 0 && std.len(std.trim(url)) == 0) { return 3; }
     let path: str = storage_mcp_server_path(clean);
     if (file_io.file_exists(path)) { return 2; }
-    file_io.write_file(path, "name=" + storage_escape_line(clean) + "\ntransport=stdio\ncommand=" + storage_escape_line(command) + "\n");
-    file_io.file_append(storage_mcp_server_index_path(), clean + " | stdio | " + command + "\n");
+    file_io.write_file(path, "name=" + storage_escape_line(clean) + "\ntransport=" + storage_escape_line(clean_transport) + "\ncommand=" + storage_escape_line(command) + "\nurl=" + storage_escape_line(url) + "\n");
+    let target: str = command;
+    if (std.len(std.trim(target)) == 0) { target = url; }
+    file_io.file_append(storage_mcp_server_index_path(), clean + " | " + clean_transport + " | " + target + "\n");
     return 0;
 }
 
