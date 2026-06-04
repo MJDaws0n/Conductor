@@ -269,6 +269,7 @@ fn storage_init() -> void {
     }
     storage_seed_agent("orchestrator", "Plans tasks, chooses next specialist, and decides when work is complete", "plan", "read,glob,grep,task,mcp", "Maintain global task state, break work into small steps, choose designer/coder/reviewer handoffs, and stop when acceptance criteria are met.");
     storage_seed_agent("designer", "Turns plans into concrete file-level implementation steps", "design", "read,glob,grep", "Convert goals into architecture notes, target files, interfaces, and patch outlines. Do not write final code.");
+    storage_seed_agent("code_designer", "Turns orchestrator goals into concrete file-level implementation contracts", "design", "read,glob,grep,mcp", "Convert goals into architecture notes, target files, interfaces, and acceptance checks. Hand implementation work to coder through orchestrator-mediated dispatch.");
     storage_seed_agent("coder", "Applies small focused code changes from a design", "code", "read,edit,write,glob,grep,bash", "Implement scoped changes, preserve local style, avoid unrelated edits, and return concise implementation notes.");
     storage_seed_agent("reviewer", "Runs checks and reports defects or approval", "review", "read,glob,grep,bash", "Run relevant tests or static checks, identify regressions, and report clear pass/fail feedback.");
     // Ensure env store exists
@@ -813,6 +814,7 @@ fn storage_session_context_chars(session_id: str) -> i32 {
     let total: i32 = std.len(storage_events_get(session_id));
     total = total + std.len(storage_role_context_get(session_id, "orchestrator"));
     total = total + std.len(storage_role_context_get(session_id, "designer"));
+    total = total + std.len(storage_role_context_get(session_id, "code_designer"));
     total = total + std.len(storage_role_context_get(session_id, "coder"));
     total = total + std.len(storage_role_context_get(session_id, "reviewer"));
     return total;

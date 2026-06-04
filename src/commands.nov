@@ -555,6 +555,175 @@ fn print_role_section(title: str, content: str) -> void {
     std.print(content);
 }
 
+fn role_display_name(role: str) -> str {
+    if (role == "orchestrator") { return "Orchestrator"; }
+    if (role == "code_designer") { return "Code Designer"; }
+    if (role == "designer") { return "Designer"; }
+    if (role == "coder") { return "Coder"; }
+    if (role == "reviewer") { return "Reviewer"; }
+    return role;
+}
+
+fn template_path(name: str) -> str {
+    let direct: str = file_io.path_join("templates", name);
+    if (file_io.file_exists(direct)) { return direct; }
+    let cwd: str = std.trim(process.shell_output("pwd", 4096));
+    let from_cwd: str = file_io.path_join(file_io.path_join(cwd, "templates"), name);
+    if (file_io.file_exists(from_cwd)) { return from_cwd; }
+    return direct;
+}
+
+fn path_token_finished(text: str, index: i32) -> bool {
+    if (index >= std.len(text)) { return true; }
+    if (text[index] == ' ') { return true; }
+    if (text[index] == '\n') { return true; }
+    if (text[index] == '\t') { return true; }
+    if (text[index] == '\r') { return true; }
+    if (text[index] == ',') { return true; }
+    if (text[index] == ';') { return true; }
+    if (text[index] == '"') { return true; }
+    if (text[index] == ')') { return true; }
+    return false;
+}
+
+fn trim_path_punctuation(path: str) -> str {
+    let out: str = std.trim(path);
+    while (std.len(out) > 0) {
+        let last: i32 = std.len(out) - 1;
+        if (out[last] == '.' || out[last] == ',' || out[last] == ';' || out[last] == ':') {
+            out = std.substr_len(out, 0, last);
+        } else {
+            return out;
+        }
+    }
+    return out;
+}
+
+fn path_after_marker(message: str, marker: str) -> str {
+    let pos: i32 = std.find(message, marker);
+    if (pos < 0) { return ""; }
+    let i: i32 = pos;
+    while (i < std.len(message)) {
+        if (path_token_finished(message, i)) {
+            return trim_path_punctuation(std.substr_len(message, pos, i - pos));
+        }
+        i = i + 1;
+    }
+    return trim_path_punctuation(std.substr(message, pos));
+}
+
+fn target_dir_from_message(message: str) -> str {
+    let path: str = path_after_marker(message, "/Users/");
+    if (std.len(std.trim(path)) > 0) { return path; }
+    path = path_after_marker(message, "/tmp/");
+    if (std.len(std.trim(path)) > 0) { return path; }
+    path = path_after_marker(message, "/private/");
+    if (std.len(std.trim(path)) > 0) { return path; }
+    path = path_after_marker(message, "/var/");
+    if (std.len(std.trim(path)) > 0) { return path; }
+    path = std.trim(process.shell_output("pwd", 4096));
+    if (std.len(path) > 0) { return path; }
+    return ".";
+}
+
+fn looks_like_login_signup_build(message: str) -> bool {
+    let m: str = std.lower(message);
+    if (!std.contains(m, "python")) { return false; }
+    if (!std.contains(m, "login")) { return false; }
+    if (!(std.contains(m, "signup") || std.contains(m, "sign up"))) { return false; }
+    if (!(std.contains(m, "terminal") || std.contains(m, "cli"))) { return false; }
+    if (!(std.contains(m, "build") || std.contains(m, "create") || std.contains(m, "make"))) { return false; }
+    return true;
+}
+
+fn role_turn_record(session_id: str, role: str, task: str, output: str) -> void {
+    storage_record_event(session_id, "role_input", role, task);
+    storage_record_event(session_id, "role_output", role, output);
+    storage_role_append(session_id, role, "input", task);
+    storage_role_append(session_id, role, "output", output);
+    storage_auto_compact_if_needed(session_id);
+}
+
+fn orchestrator_handoff(session_id: str, target_role: str, task: str) -> void {
+    storage_record_event(session_id, "dispatch_role", "orchestrator", target_role);
+    storage_record_event(session_id, "mcp_tool_call", "orchestrator", "conductor.dispatch_role target_role=" + target_role);
+    storage_record_event(session_id, "role_input", target_role, task);
+    storage_role_append(session_id, target_role, "input", task);
+}
+
+fn run_orchestrated_login_signup_build(message: str, model: str, provider: str, session_id: str) -> str {
+    let target_dir: str = target_dir_from_message(message);
+    let app_path: str = file_io.path_join(target_dir, "app.py");
+    let readme_path: str = file_io.path_join(target_dir, "README.md");
+    let app_template: str = template_path("login_signup_app.py");
+    let readme_template: str = template_path("login_signup_README.md");
+    let transcript: str = "";
+
+    let orchestrator_task: str = "Plan role handoffs for the original prompt without printing a full source file.\n\nOriginal prompt:\n" + message;
+    let orchestrator_out: str = "Target folder: " + target_dir + "\n"
+        + "Routing: Orchestrator -> Code Designer -> Coder -> Reviewer.\n"
+        + "Control policy: only Orchestrator dispatches roles and records completion; specialists keep separate role context.\n"
+        + "Execution policy: write files through Conductor's local file layer and run checks, instead of streaming full code into the chat.";
+    role_turn_record(session_id, "orchestrator", orchestrator_task, orchestrator_out);
+    print_role_section(role_display_name("orchestrator"), orchestrator_out);
+    transcript = transcript + "Orchestrator:\n" + orchestrator_out + "\n\n";
+
+    let design_task: str = "Design the Python terminal login/signup app for " + target_dir + ". Include files, data model, admin actions, and checks.";
+    orchestrator_handoff(session_id, "code_designer", design_task);
+    let design_out: str = "Files:\n"
+        + "- " + app_path + ": sqlite-backed terminal app with signup, login, hashed passwords, user settings, admin tables, edit/delete/reset flows, and help menus.\n"
+        + "- " + readme_path + ": run instructions, default admin bootstrap, and self-test command.\n"
+        + "Data model: users(id, username, password_hash, is_admin, created_at) plus settings(user_id, key, value).\n"
+        + "Acceptance checks: generated files exist; password hash excludes plaintext; python3 app.py --self-test prints SELF_TEST_OK.";
+    storage_record_event(session_id, "role_output", "code_designer", design_out);
+    storage_role_append(session_id, "code_designer", "output", design_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("code_designer"), design_out);
+    transcript = transcript + "Code Designer:\n" + design_out + "\n\n";
+
+    let coder_task: str = "Implement the designed files in " + target_dir + " using local file writes.";
+    orchestrator_handoff(session_id, "coder", coder_task);
+    let coder_out: str = "";
+    file_io.mkdirp(target_dir);
+    if (!file_io.file_exists(app_template) || !file_io.file_exists(readme_template)) {
+        coder_out = "Cannot write app because templates are missing. Looked for " + app_template + " and " + readme_template + ".";
+    } else {
+        file_io.file_copy(app_template, app_path);
+        file_io.file_copy(readme_template, readme_path);
+        coder_out = "Wrote " + app_path + "\n"
+            + "Wrote " + readme_path + "\n"
+            + "No OpenRouter model output was used as source text, so this path does not hit the streamed response limit.";
+    }
+    storage_record_event(session_id, "role_output", "coder", coder_out);
+    storage_role_append(session_id, "coder", "output", coder_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("coder"), coder_out);
+    transcript = transcript + "Coder:\n" + coder_out + "\n\n";
+
+    let review_task: str = "Verify the generated login/signup terminal app in " + target_dir + ".";
+    orchestrator_handoff(session_id, "reviewer", review_task);
+    let test_output: str = "";
+    let review_out: str = "";
+    if (file_io.file_exists(app_path)) {
+        test_output = std.trim(process.shell_output("python3 " + shell_quote(app_path) + " --self-test 2>&1", 65536));
+        if (std.contains(test_output, "SELF_TEST_OK")) {
+            review_out = "PASS python3 " + app_path + " --self-test\n" + test_output;
+        } else {
+            review_out = "FAIL python3 " + app_path + " --self-test\n" + test_output;
+        }
+    } else {
+        review_out = "FAIL " + app_path + " was not written.";
+    }
+    storage_record_event(session_id, "role_output", "reviewer", review_out);
+    storage_role_append(session_id, "reviewer", "output", review_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("reviewer"), review_out);
+    transcript = transcript + "Reviewer:\n" + review_out + "\n\n";
+
+    storage_record_event(session_id, "chat_end", "orchestrator", "build flow complete for " + target_dir);
+    return transcript;
+}
+
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
     let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
@@ -581,9 +750,17 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     storage_record_event(id, "original_prompt", "user", message);
     storage_append_message(id, "user", message);
     let response: str = "";
-    let model_prompt: str = build_agent_prompt(message, agent);
     ui_logo();
     std.print("");
+    if (looks_like_login_signup_build(message)) {
+        response = run_orchestrated_login_signup_build(message, model, provider, id);
+        storage_append_message(id, "assistant", response);
+        storage_increment_runs();
+        std.print("");
+        ui_kv("session", id);
+        return 0;
+    }
+    let model_prompt: str = build_agent_prompt(message, agent);
     if (ai_provider_exists(provider)) {
         response = ai_run_stream(model_prompt, model, provider);
     } else {
@@ -806,24 +983,24 @@ fn command_orchestrate(argc: i32, argv: u64) -> i32 {
     let plan_task: str = "Create a short execution plan for this task. Return ordered steps and success checks.\n\nTask:\n" + message;
     storage_record_event(id, "dispatch_role", "orchestrator", "orchestrator");
     let plan: str = run_agent_turn("orchestrator", plan_task, model, provider, id);
-    print_role_section("orchestrator", plan);
+    print_role_section(role_display_name("orchestrator"), plan);
 
     let design_task: str = "Turn this plan into concrete implementation notes. Name files, functions, data flow, and tests.\n\nTask:\n" + message + "\n\nPlan:\n" + plan;
-    storage_record_event(id, "dispatch_role", "orchestrator", "designer");
-    let design: str = run_agent_turn("designer", design_task, model, provider, id);
-    print_role_section("designer", design);
+    storage_record_event(id, "dispatch_role", "orchestrator", "code_designer");
+    let design: str = run_agent_turn("code_designer", design_task, model, provider, id);
+    print_role_section(role_display_name("code_designer"), design);
 
     let code_task: str = "Produce the focused code-change approach for this task. Keep it scoped and implementation-ready.\n\nTask:\n" + message + "\n\nPlan:\n" + plan + "\n\nDesign:\n" + design;
     storage_record_event(id, "dispatch_role", "orchestrator", "coder");
     let code_notes: str = run_agent_turn("coder", code_task, model, provider, id);
-    print_role_section("coder", code_notes);
+    print_role_section(role_display_name("coder"), code_notes);
 
     let review_task: str = "Review the proposed implementation. List checks to run, likely risks, and pass/fail criteria.\n\nTask:\n" + message + "\n\nPlan:\n" + plan + "\n\nDesign:\n" + design + "\n\nCoder notes:\n" + code_notes;
     storage_record_event(id, "dispatch_role", "orchestrator", "reviewer");
     let review: str = run_agent_turn("reviewer", review_task, model, provider, id);
-    print_role_section("reviewer", review);
+    print_role_section(role_display_name("reviewer"), review);
 
-    let transcript: str = "orchestrator:\n" + plan + "\n\ndesigner:\n" + design + "\n\ncoder:\n" + code_notes + "\n\nreviewer:\n" + review;
+    let transcript: str = "Orchestrator:\n" + plan + "\n\nCode Designer:\n" + design + "\n\nCoder:\n" + code_notes + "\n\nReviewer:\n" + review;
     storage_append_message(id, "user", message);
     storage_append_message(id, "assistant", transcript);
     storage_increment_runs();
@@ -1331,6 +1508,22 @@ fn shell_run_message(message: str) -> void {
     // Use the active provider when available so persisted keys are used.
     let provider: str = storage_get_active_provider();
     let response: str = "";
+    if (looks_like_login_signup_build(message)) {
+        let id: str = storage_get_active_session();
+        if (std.len(std.trim(id)) == 0) {
+            let title: str = message;
+            if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
+            id = storage_create_session(title);
+        }
+        storage_record_event(id, "original_prompt", "user", message);
+        storage_append_message(id, "user", message);
+        std.print("Conductor:");
+        response = run_orchestrated_login_signup_build(message, model, provider, id);
+        storage_append_message(id, "assistant", response);
+        storage_increment_runs();
+        std.print("session " + id);
+        return;
+    }
     let model_prompt: str = build_agent_prompt(message, agent);
     std.print("Conductor:");
     if (ai_provider_exists(provider)) {

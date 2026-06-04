@@ -42,6 +42,7 @@ fn main() -> i32 {
     failures = failures + assert_true(storage_set_active_agent(agent_name) == 0, "agent use");
     failures = failures + assert_true(storage_agent_exists("orchestrator"), "orchestrator seeded");
     failures = failures + assert_true(storage_agent_exists("designer"), "designer seeded");
+    failures = failures + assert_true(storage_agent_exists("code_designer"), "code designer seeded");
     failures = failures + assert_true(storage_agent_exists("coder"), "coder seeded");
     failures = failures + assert_true(storage_agent_exists("reviewer"), "reviewer seeded");
     storage_context_clear();
@@ -120,7 +121,10 @@ fn main() -> i32 {
     let ev_id: str = storage_record_event(sid3, "decision", "orchestrator", "keep evidence");
     failures = failures + assert_true(storage_event_exists(sid3, ev_id), "event exists");
     storage_role_append(sid3, "coder", "note", "role-local memory");
+    storage_role_append(sid3, "code_designer", "note", "design role-local memory");
     failures = failures + assert_true(std.contains(storage_role_context_get(sid3, "coder"), "role-local memory"), "role context persists");
+    failures = failures + assert_true(std.contains(storage_role_context_get(sid3, "code_designer"), "design role-local memory"), "code designer context persists");
+    failures = failures + assert_true(storage_session_context_chars(sid3) >= std.len(storage_role_context_get(sid3, "code_designer")), "code designer context counted");
     failures = failures + assert_true(storage_compaction_create(sid3, "reviewer", "compact test prompt " + ev_id) == 1, "non-orchestrator compaction denied");
     failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "missing prompt " + ev_id) == 3, "compaction requires prompt excerpt");
     failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "compact test prompt missing-event") == 4, "compaction requires real event id");
