@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import select
 import shlex
 import subprocess
 import sys
@@ -57,7 +58,8 @@ def run_conductor_json(command: str, subcommand: str, *extra: str) -> object:
 
 
 class McpClient:
-    def __init__(self, command: str) -> None:
+    def __init__(self, command: str, timeout_seconds: float) -> None:
+        self.timeout_seconds = timeout_seconds
         self.proc = subprocess.Popen(
             shlex.split(command),
             stdin=subprocess.PIPE,
@@ -87,6 +89,9 @@ class McpClient:
         self.proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
         self.proc.stdin.flush()
         while True:
+            ready, _, _ = select.select([self.proc.stdout], [], [], self.timeout_seconds)
+            if not ready:
+                raise TimeoutError(f"MCP server did not answer {method} within {self.timeout_seconds}s")
             line = self.proc.stdout.readline()
             if line == "":
                 stderr = ""
@@ -134,6 +139,7 @@ def main() -> int:
     parser.add_argument("--action", required=True)
     parser.add_argument("--tool", default="")
     parser.add_argument("--args", default="{}")
+    parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
 
     try:
@@ -153,7 +159,7 @@ def main() -> int:
             else:
                 return fail(f"unknown action: {args.action}")
             return 0
-        client = McpClient(command)
+        client = McpClient(command, args.timeout)
         try:
             client.initialize()
             if args.action == "tools":
