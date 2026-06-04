@@ -30,6 +30,7 @@ On Linux x86_64 the binary is emitted at:
 novus tests/test_conductor.nov
 ./build/darwin_arm64/conductor_tests
 ./run_smoke_tests.sh
+./scripts/prod_check.sh
 ```
 
 Use the platform-specific test binary under `build/` if you are not on macOS ARM64.
@@ -63,6 +64,12 @@ Force test mode even if live flags exist:
 
 ```sh
 conductor env CONDUCTOR_OPENROUTER_TEST 1
+```
+
+Run an optional low-cost live smoke against DeepSeek V4 Pro:
+
+```sh
+OPENROUTER_API_KEY="sk_..." ./scripts/live_deepseek_smoke.sh
 ```
 
 Provider keys can be configured with Conductor-stored environment values, files, GPG, or OS keyrings:

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  prod-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl python3
+
+      - name: Install Novus toolchain
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/MJDaws0n/Novus/main/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.novus/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$HOME/bin:$HOME/.novus/bin:$PATH"
+          if ! command -v nox >/dev/null 2>&1; then
+            curl -fsSL https://raw.githubusercontent.com/MJDaws0n/Nox/main/install.sh | bash
+          fi
+
+      - name: Run production checks
+        run: bash scripts/prod_check.sh

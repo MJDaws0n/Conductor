@@ -80,6 +80,12 @@ fn main() -> i32 {
     failures = failures + assert_true(std.contains(run_out, "mocked"), "ai_run returns mocked response when key is MOCK");
     let safe_out: str = ai_run("no credits please", "", "openrouter");
     failures = failures + assert_true(std.contains(safe_out, "credits=0"), "default openrouter run avoids network credits");
+    failures = failures + assert_true(std.contains(ai_openrouter_provider_body("deepseek"), "\"only\":[\"deepseek\"]"), "deepseek provider routes only to official provider");
+    failures = failures + assert_true(std.contains(ai_openrouter_provider_body("deepseek"), "\"allow_fallbacks\":false"), "deepseek provider disables fallbacks");
+    failures = failures + assert_true(ai_openrouter_extract_content("{\"choices\":[{\"message\":{\"content\":\"hello\\nworld\"}}]}") == "hello\nworld", "openrouter content extraction handles escapes");
+    failures = failures + assert_true(std.contains(ai_openrouter_extract_content("{\"choices\":[{\"finish_reason\":\"length\",\"message\":{\"content\":null}}]}"), "no assistant content"), "openrouter null content returns clear error");
+    storage_env_set("CONDUCTOR_OPENROUTER_MAX_TOKENS", "99999");
+    failures = failures + assert_true(ai_openrouter_max_tokens() == 8192, "openrouter max tokens capped");
     storage_env_set("CONDUCTOR_OPENROUTER_LIVE", "1");
     failures = failures + assert_true(ai_openrouter_mode() == "live", "stored live flag enables live mode");
     storage_env_set("CONDUCTOR_OPENROUTER_TEST", "1");
