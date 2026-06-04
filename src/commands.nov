@@ -231,12 +231,28 @@ fn mcp_construct_tool_request(tool: str, args_json: str) -> str {
     return "{\"name\":\"" + mcp_json_escape(tool) + "\"}";
 }
 
+fn mcp_read_line() -> str {
+    let out: str = "";
+    let reading: bool = true;
+    while (reading) {
+        let ch: str = std.input("", 1);
+        if (std.len(ch) == 0) {
+            return out;
+        }
+        out = out + ch;
+        if (std.len(out) >= 65536) {
+            return out;
+        }
+    }
+    return out;
+}
+
 fn mcp_serve_conductor_loop() -> i32 {
     storage_init();
     let running: bool = true;
     let empty_reads: i32 = 0;
     while (running) {
-        let line: str = std.trim(std.input("", 65536));
+        let line: str = std.trim(mcp_read_line());
         if (std.len(line) == 0) {
             empty_reads = empty_reads + 1;
             if (empty_reads >= 3) { running = false; }
@@ -246,6 +262,11 @@ fn mcp_serve_conductor_loop() -> i32 {
             let method: str = mcp_json_string_field(line, "method");
             if (method == "initialize") {
                 mcp_reply_result(id, "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},\"serverInfo\":{\"name\":\"conductor-control\",\"version\":\"0.1.0\"}}");
+            } else if (method == "shutdown") {
+                mcp_reply_result(id, "null");
+                running = false;
+            } else if (method == "exit") {
+                running = false;
             } else if (method == "notifications/initialized") {
                 // no response for notification
             } else if (method == "tools/list") {
@@ -777,8 +798,7 @@ fn command_mcp(argc: i32, argv: u64) -> i32 {
         return 0;
     }
     if (sub == "serve-conductor") {
-        let cmd: str = "python3 " + shell_quote(script_path("conductor_mcp_communicator.py")) + " --conductor " + shell_quote(arg_at(argv, 0)) + " --home " + shell_quote(storage_root());
-        return process.shell_exec(cmd);
+        return mcp_serve_conductor_loop();
     }
     if (sub == "tools" || sub == "resources" || sub == "prompts") {
         if (argc < 4) { ui_error("Usage: conductor mcp " + sub + " <name>"); return 1; }

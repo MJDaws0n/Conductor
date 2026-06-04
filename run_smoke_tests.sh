@@ -68,7 +68,7 @@ grep -q "smoke skill context" <<<"$out"
 out="$("$bin" skill disable smoke-skill --home "$home")"
 grep -q "Skill disabled" <<<"$out"
 
-chmod +x "$repo_root/scripts/mcp_stdio_bridge.py" "$repo_root/scripts/conductor_mcp_communicator.py" "$repo_root/scripts/fake_mcp_server.py"
+chmod +x "$repo_root/scripts/mcp_stdio_bridge.py" "$repo_root/scripts/fake_mcp_server.py"
 out="$("$bin" mcp add --name fake --command "python3 $repo_root/scripts/fake_mcp_server.py" --home "$home")"
 grep -q "MCP server added" <<<"$out"
 out="$("$bin" mcp tools fake --home "$home")"
