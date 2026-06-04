@@ -51,12 +51,234 @@ fn collect_message(argc: i32, argv: u64, start: i32) -> str {
     return out;
 }
 
+fn shell_quote(value: str) -> str {
+    return "'" + std.replace(value, "'", "'\"'\"'") + "'";
+}
+
+fn script_path(name: str) -> str {
+    let local: str = "scripts/" + name;
+    if (file_io.file_exists(local)) { return local; }
+    return local;
+}
+
+fn parse_field(content: str, field: str) -> str {
+    let prefix: str = field + ":";
+    let rest: str = content;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.trim(std.split_first(rest, "\n"));
+        rest = std.split_rest(rest, "\n");
+        if (std.starts_with(line, prefix)) {
+            return std.trim(std.substr(line, std.len(prefix)));
+        }
+    }
+    return "";
+}
+
+fn mcp_json_escape(value: str) -> str {
+    let out: str = std.replace(value, "\\", "\\\\");
+    out = std.replace(out, "\"", "\\\"");
+    out = std.replace(out, "\r", "\\r");
+    out = std.replace(out, "\n", "\\n");
+    out = std.replace(out, "\t", "\\t");
+    return out;
+}
+
+fn mcp_json_string_field(content: str, field: str) -> str {
+    let marker: str = "\"" + field + "\"";
+    let pos: i32 = std.find(content, marker);
+    if (pos < 0) { return ""; }
+    let after_marker: str = std.substr(content, pos + std.len(marker));
+    let after_colon: str = std.trim(std.split_rest(after_marker, ":"));
+    if (!std.starts_with(after_colon, "\"")) { return ""; }
+    let inner: str = std.substr(after_colon, 1);
+    let end_pos: i32 = std.find(inner, "\"");
+    if (end_pos < 0) { return ""; }
+    let raw: str = std.substr_len(inner, 0, end_pos);
+    return std.replace(std.replace(std.replace(std.replace(raw, "\\n", "\n"), "\\r", "\r"), "\\t", "\t"), "\\\"", "\"");
+}
+
+fn mcp_json_raw_id(content: str) -> str {
+    let marker: str = "\"id\"";
+    let pos: i32 = std.find(content, marker);
+    if (pos < 0) { return "null"; }
+    let after_marker: str = std.substr(content, pos + std.len(marker));
+    let after_colon: str = std.trim(std.split_rest(after_marker, ":"));
+    if (std.starts_with(after_colon, "\"")) {
+        let inner: str = std.substr(after_colon, 1);
+        let end_pos: i32 = std.find(inner, "\"");
+        if (end_pos < 0) { return "null"; }
+        return "\"" + mcp_json_escape(std.substr_len(inner, 0, end_pos)) + "\"";
+    }
+    let comma_pos: i32 = std.find(after_colon, ",");
+    let brace_pos: i32 = std.find(after_colon, "}");
+    let end: i32 = comma_pos;
+    if (end < 0 || (brace_pos >= 0 && brace_pos < end)) { end = brace_pos; }
+    if (end < 0) { return "null"; }
+    return std.trim(std.substr_len(after_colon, 0, end));
+}
+
+fn mcp_reply_result(id: str, result_json: str) -> void {
+    if (id == "null") { return; }
+    std.print_raw("{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":" + result_json + "}\n");
+}
+
+fn mcp_reply_error(id: str, code: i32, message: str) -> void {
+    if (id == "null") { return; }
+    std.print_raw("{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":" + std.to_str(code) + ",\"message\":\"" + mcp_json_escape(message) + "\"}}\n");
+}
+
+fn mcp_text_result(text: str, is_error: bool) -> str {
+    let flag: str = "false";
+    if (is_error) { flag = "true"; }
+    return "{\"content\":[{\"type\":\"text\",\"text\":\"" + mcp_json_escape(text) + "\"}],\"isError\":" + flag + "}";
+}
+
+fn mcp_tool_schema() -> str {
+    return "{\"tools\":["
+        + "{\"name\":\"conductor.session_state\",\"description\":\"Read Conductor session event ledger and role state.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"conductor.dispatch_role\",\"description\":\"Orchestrator-only: dispatch a task to a specialist role.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"},\"target_role\":{\"type\":\"string\"},\"task\":{\"type\":\"string\"}},\"required\":[\"role\",\"target_role\",\"task\"]}},"
+        + "{\"name\":\"conductor.ask_user\",\"description\":\"Orchestrator-only: ask the user a blocking question.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"},\"question\":{\"type\":\"string\"}},\"required\":[\"role\",\"question\"]}},"
+        + "{\"name\":\"conductor.end_chat\",\"description\":\"Orchestrator-only: end the chat with a reason.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"role\"]}},"
+        + "{\"name\":\"conductor.compact_context\",\"description\":\"Orchestrator-only: write verified compaction. Summary must include original prompt excerpt and real event id.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"},\"summary\":{\"type\":\"string\"}},\"required\":[\"role\",\"summary\"]}},"
+        + "{\"name\":\"conductor.record_decision\",\"description\":\"Record a role decision in the session ledger.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"}},\"required\":[\"role\",\"text\"]}},"
+        + "{\"name\":\"conductor.activate_skill\",\"description\":\"Enable a registered Conductor skill.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"skill\":{\"type\":\"string\"}},\"required\":[\"skill\"]}}"
+        + "]}";
+}
+
+fn mcp_effective_session(request: str) -> str {
+    let sid: str = mcp_json_string_field(request, "session_id");
+    if (std.len(std.trim(sid)) > 0) { return sid; }
+    return storage_get_active_session();
+}
+
+fn mcp_call_tool(request: str) -> str {
+    let tool: str = mcp_json_string_field(request, "name");
+    let role: str = mcp_json_string_field(request, "role");
+    if (std.len(std.trim(role)) == 0) { role = "orchestrator"; }
+    let session_id: str = mcp_effective_session(request);
+    if (tool == "conductor.activate_skill") {
+        let skill: str = mcp_json_string_field(request, "skill");
+        let rc: i32 = storage_skill_set_enabled(skill, true);
+        if (rc == 0) { return mcp_text_result("skill enabled: " + skill, false); }
+        return mcp_text_result("skill not found: " + skill, true);
+    }
+    if (std.len(std.trim(session_id)) == 0) {
+        return mcp_text_result("no active session", true);
+    }
+    storage_session_bootstrap(session_id);
+    if (tool == "conductor.session_state") {
+        return mcp_text_result("session=" + session_id + "\n" + storage_events_get(session_id), false);
+    }
+    if (tool == "conductor.record_decision") {
+        let text: str = mcp_json_string_field(request, "text");
+        let id: str = storage_record_event(session_id, "decision", role, text);
+        return mcp_text_result("decision recorded: " + id, false);
+    }
+    if (tool == "conductor.ask_user") {
+        if (role != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", role, "ask-user");
+            return mcp_text_result("orchestrator-only control: ask-user", true);
+        }
+        let question: str = mcp_json_string_field(request, "question");
+        let id: str = storage_record_event(session_id, "ask_user", role, question);
+        return mcp_text_result("QUESTION " + id + ": " + question, false);
+    }
+    if (tool == "conductor.end_chat") {
+        if (role != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", role, "end-chat");
+            return mcp_text_result("orchestrator-only control: end-chat", true);
+        }
+        let reason: str = mcp_json_string_field(request, "reason");
+        let id: str = storage_record_event(session_id, "chat_end", role, reason);
+        return mcp_text_result("CHAT_END " + id + ": " + reason, false);
+    }
+    if (tool == "conductor.dispatch_role") {
+        if (role != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", role, "dispatch-role");
+            return mcp_text_result("orchestrator-only control: dispatch-role", true);
+        }
+        let target: str = mcp_json_string_field(request, "target_role");
+        let task: str = mcp_json_string_field(request, "task");
+        storage_record_event(session_id, "dispatch_role", role, target);
+        let response: str = run_agent_turn(target, task, storage_get_active_model(), storage_get_active_provider(), session_id);
+        return mcp_text_result(response, false);
+    }
+    if (tool == "conductor.compact_context") {
+        if (role != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", role, "compact");
+            return mcp_text_result("orchestrator-only control: compact", true);
+        }
+        let summary: str = mcp_json_string_field(request, "summary");
+        let rc: i32 = storage_compaction_create(session_id, role, summary);
+        if (rc == 0) { return mcp_text_result("compaction saved", false); }
+        if (rc == 2) { return mcp_text_result("compaction requires original_prompt event", true); }
+        if (rc == 3) { return mcp_text_result("compaction summary must include original prompt excerpt", true); }
+        if (rc == 4) { return mcp_text_result("compaction summary must cite at least one real event id", true); }
+        return mcp_text_result("orchestrator-only control: compact", true);
+    }
+    return mcp_text_result("unknown tool: " + tool, true);
+}
+
+fn mcp_construct_tool_request(tool: str, args_json: str) -> str {
+    let clean: str = std.trim(args_json);
+    if (std.starts_with(clean, "{")) {
+        let body: str = std.substr(clean, 1);
+        if (std.starts_with(std.trim(body), "}")) {
+            return "{\"name\":\"" + mcp_json_escape(tool) + "\"}";
+        }
+        return "{\"name\":\"" + mcp_json_escape(tool) + "\"," + body;
+    }
+    return "{\"name\":\"" + mcp_json_escape(tool) + "\"}";
+}
+
+fn mcp_serve_conductor_loop() -> i32 {
+    storage_init();
+    let running: bool = true;
+    let empty_reads: i32 = 0;
+    while (running) {
+        let line: str = std.trim(std.input("", 65536));
+        if (std.len(line) == 0) {
+            empty_reads = empty_reads + 1;
+            if (empty_reads >= 3) { running = false; }
+        } else {
+            empty_reads = 0;
+            let id: str = mcp_json_raw_id(line);
+            let method: str = mcp_json_string_field(line, "method");
+            if (method == "initialize") {
+                mcp_reply_result(id, "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},\"serverInfo\":{\"name\":\"conductor-control\",\"version\":\"0.1.0\"}}");
+            } else if (method == "notifications/initialized") {
+                // no response for notification
+            } else if (method == "tools/list") {
+                mcp_reply_result(id, mcp_tool_schema());
+            } else if (method == "resources/list") {
+                mcp_reply_result(id, "{\"resources\":[{\"uri\":\"conductor://session/events\",\"name\":\"Session events\",\"mimeType\":\"text/plain\"}]}");
+            } else if (method == "resources/read") {
+                let sid: str = storage_get_active_session();
+                let text: str = "";
+                if (std.len(std.trim(sid)) > 0) { text = storage_events_get(sid); }
+                mcp_reply_result(id, "{\"contents\":[{\"uri\":\"conductor://session/events\",\"mimeType\":\"text/plain\",\"text\":\"" + mcp_json_escape(text) + "\"}]}");
+            } else if (method == "prompts/list") {
+                mcp_reply_result(id, "{\"prompts\":[]}");
+            } else if (method == "tools/call") {
+                mcp_reply_result(id, mcp_call_tool(line));
+            } else {
+                mcp_reply_error(id, -32601, "method not found: " + method);
+            }
+        }
+    }
+    return 0;
+}
+
 fn build_agent_prompt(message: str, agent: str) -> str {
     let prompt: str = "";
     let agent_prompt: str = storage_agent_prompt(agent);
     let context: str = storage_context_get();
+    let skills: str = storage_enabled_skills_context();
     if (std.len(std.trim(agent_prompt)) > 0) {
         prompt = prompt + "Agent instructions:\n" + agent_prompt + "\n\n";
+    }
+    if (std.len(std.trim(skills)) > 0) {
+        prompt = prompt + "Enabled skills:\n" + skills + "\n";
     }
     if (std.len(std.trim(context)) > 0) {
         prompt = prompt + "Project context:\n" + context + "\n";
@@ -65,12 +287,30 @@ fn build_agent_prompt(message: str, agent: str) -> str {
     return prompt;
 }
 
-fn run_agent_turn(agent: str, task: str, model: str, provider: str) -> str {
-    let model_prompt: str = build_agent_prompt(task, agent);
-    if (ai_provider_exists(provider)) {
-        return ai_run(model_prompt, model, provider);
+fn build_agent_prompt_scoped(message: str, agent: str, session_id: str) -> str {
+    let prompt: str = build_agent_prompt(message, agent);
+    let role_context: str = storage_role_context_get(session_id, agent);
+    if (std.len(std.trim(role_context)) > 0) {
+        prompt = "Role-local context for " + agent + ":\n" + role_context + "\n\n" + prompt;
     }
-    return ai_placeholder_response(model_prompt, model, agent);
+    return prompt;
+}
+
+fn run_agent_turn(agent: str, task: str, model: str, provider: str, session_id: str) -> str {
+    let model_prompt: str = build_agent_prompt_scoped(task, agent, session_id);
+    storage_record_event(session_id, "role_input", agent, task);
+    if (ai_provider_exists(provider)) {
+        let response: str = ai_run(model_prompt, model, provider);
+        storage_record_event(session_id, "role_output", agent, response);
+        storage_role_append(session_id, agent, "input", task);
+        storage_role_append(session_id, agent, "output", response);
+        return response;
+    }
+    let fallback: str = ai_placeholder_response(model_prompt, model, agent);
+    storage_record_event(session_id, "role_output", agent, fallback);
+    storage_role_append(session_id, agent, "input", task);
+    storage_role_append(session_id, agent, "output", fallback);
+    return fallback;
 }
 
 fn print_role_section(title: str, content: str) -> void {
@@ -315,27 +555,36 @@ fn command_orchestrate(argc: i32, argv: u64) -> i32 {
     ui_kv("model", model);
     ui_kv("mode", ai_openrouter_mode());
 
+    let session_title: str = "orchestrate: " + message;
+    let final_title: str = session_title;
+    if (std.len(final_title) > 48) { final_title = std.substr_len(final_title, 0, 48); }
+    let id: str = storage_create_session(final_title);
+    storage_record_event(id, "original_prompt", "user", message);
+
     let plan_task: str = "Create a short execution plan for this task. Return ordered steps and success checks.\n\nTask:\n" + message;
-    let plan: str = run_agent_turn("orchestrator", plan_task, model, provider);
+    storage_record_event(id, "dispatch_role", "orchestrator", "orchestrator");
+    let plan: str = run_agent_turn("orchestrator", plan_task, model, provider, id);
     print_role_section("orchestrator", plan);
 
     let design_task: str = "Turn this plan into concrete implementation notes. Name files, functions, data flow, and tests.\n\nTask:\n" + message + "\n\nPlan:\n" + plan;
-    let design: str = run_agent_turn("designer", design_task, model, provider);
+    storage_record_event(id, "dispatch_role", "orchestrator", "designer");
+    let design: str = run_agent_turn("designer", design_task, model, provider, id);
     print_role_section("designer", design);
 
     let code_task: str = "Produce the focused code-change approach for this task. Keep it scoped and implementation-ready.\n\nTask:\n" + message + "\n\nPlan:\n" + plan + "\n\nDesign:\n" + design;
-    let code_notes: str = run_agent_turn("coder", code_task, model, provider);
+    storage_record_event(id, "dispatch_role", "orchestrator", "coder");
+    let code_notes: str = run_agent_turn("coder", code_task, model, provider, id);
     print_role_section("coder", code_notes);
 
     let review_task: str = "Review the proposed implementation. List checks to run, likely risks, and pass/fail criteria.\n\nTask:\n" + message + "\n\nPlan:\n" + plan + "\n\nDesign:\n" + design + "\n\nCoder notes:\n" + code_notes;
-    let review: str = run_agent_turn("reviewer", review_task, model, provider);
+    storage_record_event(id, "dispatch_role", "orchestrator", "reviewer");
+    let review: str = run_agent_turn("reviewer", review_task, model, provider, id);
     print_role_section("reviewer", review);
 
     let transcript: str = "orchestrator:\n" + plan + "\n\ndesigner:\n" + design + "\n\ncoder:\n" + code_notes + "\n\nreviewer:\n" + review;
-    let title: str = "orchestrate: " + message;
-    let final_title: str = title;
-    if (std.len(final_title) > 48) { final_title = std.substr_len(final_title, 0, 48); }
-    let id: str = storage_record_session(final_title, message, transcript);
+    storage_append_message(id, "user", message);
+    storage_append_message(id, "assistant", transcript);
+    storage_increment_runs();
     std.print("");
     ui_kv("session", id);
     return 0;
@@ -401,34 +650,235 @@ fn command_permission(argc: i32, argv: u64) -> i32 {
     return 1;
 }
 
+fn command_skill(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    if (argc < 3) {
+        let list: str = storage_skill_list();
+        if (std.len(std.trim(list)) == 0) { std.print("No skills configured."); return 0; }
+        std.print(list);
+        return 0;
+    }
+    let sub: str = arg_at(argv, 2);
+    if (sub == "list" || sub == "ls") {
+        let list: str = storage_skill_list();
+        if (std.len(std.trim(list)) == 0) { std.print("No skills configured."); return 0; }
+        std.print(list);
+        return 0;
+    }
+    if (sub == "add") {
+        if (argc < 4) { ui_error("Usage: conductor skill add <SKILL.md> [--name NAME]"); return 1; }
+        let path: str = arg_at(argv, 3);
+        if (!file_io.file_exists(path)) { ui_error("Skill file not found: " + path); return 1; }
+        let content: str = file_io.read_file(path);
+        let name: str = option_value(argc, argv, "--name", "");
+        if (std.len(std.trim(name)) == 0) {
+            name = parse_field(content, "name");
+        }
+        if (std.len(std.trim(name)) == 0) {
+            name = std.split_first(path, ".");
+        }
+        let desc: str = parse_field(content, "description");
+        let rc: i32 = storage_skill_register(name, desc, path, content);
+        if (rc == 0) { ui_ok("Skill added: " + name); return 0; }
+        if (rc == 2) { ui_error("Skill already exists: " + name); return 1; }
+        ui_error("Skill name is required.");
+        return 1;
+    }
+    if (sub == "show") {
+        if (argc < 4) { ui_error("Usage: conductor skill show <name>"); return 1; }
+        let cfg: str = storage_skill_get(arg_at(argv, 3));
+        if (std.len(std.trim(cfg)) == 0) { ui_error("Skill not found: " + arg_at(argv, 3)); return 1; }
+        std.print(cfg);
+        return 0;
+    }
+    if (sub == "enable") {
+        if (argc < 4) { ui_error("Usage: conductor skill enable <name>"); return 1; }
+        let rc: i32 = storage_skill_set_enabled(arg_at(argv, 3), true);
+        if (rc == 0) { ui_ok("Skill enabled: " + arg_at(argv, 3)); return 0; }
+        ui_error("Skill not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    if (sub == "disable") {
+        if (argc < 4) { ui_error("Usage: conductor skill disable <name>"); return 1; }
+        let rc: i32 = storage_skill_set_enabled(arg_at(argv, 3), false);
+        if (rc == 0) { ui_ok("Skill disabled: " + arg_at(argv, 3)); return 0; }
+        ui_error("Skill not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    if (sub == "context") {
+        let ctx: str = storage_enabled_skills_context();
+        if (std.len(std.trim(ctx)) == 0) { std.print("No enabled skill context."); return 0; }
+        std.print(ctx);
+        return 0;
+    }
+    ui_error("Usage: conductor skill add|list|show|enable|disable|context");
+    return 1;
+}
+
 fn command_mcp(argc: i32, argv: u64) -> i32 {
     storage_init();
-    let path: str = file_io.path_join(storage_root(), "mcp.txt");
-    if (!file_io.file_exists(path)) {
-        file_io.write_file(path, "");
+    if (argc < 3) {
+        let list: str = storage_mcp_server_list();
+        if (std.len(std.trim(list)) == 0) { std.print("No MCP servers configured."); return 0; }
+        std.print(list);
+        return 0;
     }
-    if (argc >= 3) {
-        let a2: str = arg_at(argv, 2);
-        if (a2 == "list" || a2 == "ls") {
-            let content: str = file_io.read_file(path);
-            if (std.len(std.trim(content)) == 0) {
-                std.print("No MCP servers configured.");
-                return 0;
-            }
-            std.print(content);
-            return 0;
+    let sub: str = arg_at(argv, 2);
+    if (sub == "list" || sub == "ls") {
+        let list: str = storage_mcp_server_list();
+        if (std.len(std.trim(list)) == 0) { std.print("No MCP servers configured."); return 0; }
+        std.print(list);
+        return 0;
+    }
+    if (sub == "add") {
+        let name: str = option_value(argc, argv, "--name", "");
+        let command: str = option_value(argc, argv, "--command", "");
+        if (std.len(std.trim(name)) == 0 || std.len(std.trim(command)) == 0) {
+            ui_error("Usage: conductor mcp add --name NAME --command COMMAND");
+            return 1;
         }
+        let rc: i32 = storage_mcp_server_create(name, command);
+        if (rc == 0) { ui_ok("MCP server added: " + name); return 0; }
+        if (rc == 2) { ui_error("MCP server already exists: " + name); return 1; }
+        ui_error("MCP server command is required.");
+        return 1;
     }
-    if (argc >= 3) {
-        if (arg_at(argv, 2) == "add") {
-            let name: str = option_value(argc, argv, "--name", "server");
-            let url: str = option_value(argc, argv, "--url", "stdio://placeholder");
-            file_io.file_append(path, name + " | " + url + " | placeholder\n");
-            ui_ok("MCP server added: " + name);
-            return 0;
+    if (sub == "show") {
+        if (argc < 4) { ui_error("Usage: conductor mcp show <name>"); return 1; }
+        let cfg: str = storage_mcp_server_get(arg_at(argv, 3));
+        if (std.len(std.trim(cfg)) == 0) { ui_error("MCP server not found: " + arg_at(argv, 3)); return 1; }
+        std.print(cfg);
+        return 0;
+    }
+    if (sub == "remove" || sub == "delete") {
+        if (argc < 4) { ui_error("Usage: conductor mcp remove <name>"); return 1; }
+        let rc: i32 = storage_mcp_server_delete(arg_at(argv, 3));
+        if (rc == 0) { ui_ok("MCP server removed: " + arg_at(argv, 3)); return 0; }
+        ui_error("MCP server not found: " + arg_at(argv, 3));
+        return 1;
+    }
+    if (sub == "conductor-tools-json") {
+        std.print(mcp_tool_schema());
+        return 0;
+    }
+    if (sub == "conductor-resources-json") {
+        std.print("{\"resources\":[{\"uri\":\"conductor://session/events\",\"name\":\"Session events\",\"mimeType\":\"text/plain\"}]}");
+        return 0;
+    }
+    if (sub == "conductor-prompts-json") {
+        std.print("{\"prompts\":[]}");
+        return 0;
+    }
+    if (sub == "conductor-call-json") {
+        if (argc < 5) { std.print(mcp_text_result("missing tool or args", true)); return 1; }
+        let tool: str = arg_at(argv, 3);
+        let args_json: str = collect_message(argc, argv, 4);
+        std.print(mcp_call_tool(mcp_construct_tool_request(tool, args_json)));
+        return 0;
+    }
+    if (sub == "serve-conductor") {
+        std.print("{\"conductorMcp\":\"novus\",\"tools\":\"conductor-tools-json\",\"call\":\"conductor-call-json\"}");
+        return 0;
+    }
+    if (sub == "tools" || sub == "resources" || sub == "prompts") {
+        if (argc < 4) { ui_error("Usage: conductor mcp " + sub + " <name>"); return 1; }
+        let name: str = arg_at(argv, 3);
+        if (!storage_mcp_server_exists(name)) { ui_error("MCP server not found: " + name); return 1; }
+        let bridge: str = "python3 " + shell_quote(script_path("mcp_stdio_bridge.py")) + " --home " + shell_quote(storage_root()) + " --server " + shell_quote(name) + " --action " + shell_quote(sub);
+        std.print(process.shell_output(bridge, 65536));
+        return 0;
+    }
+    if (sub == "call") {
+        if (argc < 5) { ui_error("Usage: conductor mcp call <server> <tool> [json_args]"); return 1; }
+        let server: str = arg_at(argv, 3);
+        let tool: str = arg_at(argv, 4);
+        let args: str = "{}";
+        if (argc >= 6) { args = collect_message(argc, argv, 5); }
+        if (!storage_mcp_server_exists(server)) { ui_error("MCP server not found: " + server); return 1; }
+        let bridge: str = "python3 " + shell_quote(script_path("mcp_stdio_bridge.py")) + " --home " + shell_quote(storage_root()) + " --server " + shell_quote(server) + " --action call --tool " + shell_quote(tool) + " --args " + shell_quote(args);
+        std.print(process.shell_output(bridge, 65536));
+        return 0;
+    }
+    ui_error("Usage: conductor mcp add|list|show|remove|tools|resources|prompts|call|serve-conductor");
+    return 1;
+}
+
+fn command_control(argc: i32, argv: u64) -> i32 {
+    storage_init();
+    let session_id: str = option_value(argc, argv, "--session", storage_get_active_session());
+    let actor: str = option_value(argc, argv, "--role", "orchestrator");
+    if (argc < 3) { ui_error("Usage: conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact"); return 1; }
+    if (std.len(std.trim(session_id)) == 0) { ui_error("No active session."); return 1; }
+    storage_session_bootstrap(session_id);
+    let sub: str = arg_at(argv, 2);
+    if (sub == "state") {
+        ui_kv("session", session_id);
+        std.print(storage_events_get(session_id));
+        return 0;
+    }
+    if (sub == "record-decision") {
+        let text: str = collect_message(argc, argv, 3);
+        if (std.len(std.trim(text)) == 0) { ui_error("Usage: conductor control record-decision <text>"); return 1; }
+        let id: str = storage_record_event(session_id, "decision", actor, text);
+        ui_ok("Decision recorded: " + id);
+        return 0;
+    }
+    if (sub == "ask-user") {
+        if (actor != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", actor, "ask-user");
+            ui_error("orchestrator-only control: ask-user");
+            return 1;
         }
+        let question: str = collect_message(argc, argv, 3);
+        if (std.len(std.trim(question)) == 0) { ui_error("Usage: conductor control ask-user <question> --role orchestrator"); return 1; }
+        let id: str = storage_record_event(session_id, "ask_user", actor, question);
+        std.print("QUESTION " + id + ": " + question);
+        return 0;
     }
-    ui_error("Usage: conductor mcp list|add --name NAME --url URL");
+    if (sub == "end-chat") {
+        if (actor != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", actor, "end-chat");
+            ui_error("orchestrator-only control: end-chat");
+            return 1;
+        }
+        let reason: str = collect_message(argc, argv, 3);
+        let id: str = storage_record_event(session_id, "chat_end", actor, reason);
+        std.print("CHAT_END " + id + ": " + reason);
+        return 0;
+    }
+    if (sub == "dispatch-role") {
+        if (actor != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", actor, "dispatch-role");
+            ui_error("orchestrator-only control: dispatch-role");
+            return 1;
+        }
+        if (argc < 5) { ui_error("Usage: conductor control dispatch-role <role> <task> --role orchestrator"); return 1; }
+        let target: str = arg_at(argv, 3);
+        let task: str = collect_message(argc, argv, 4);
+        storage_record_event(session_id, "dispatch_role", actor, target);
+        let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
+        let model: str = option_value(argc, argv, "--model", storage_get_active_model());
+        let response: str = run_agent_turn(target, task, model, provider, session_id);
+        std.print(response);
+        return 0;
+    }
+    if (sub == "compact") {
+        if (actor != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", actor, "compact");
+            ui_error("orchestrator-only control: compact");
+            return 1;
+        }
+        let summary: str = collect_message(argc, argv, 3);
+        if (std.len(std.trim(summary)) == 0) { ui_error("Usage: conductor control compact <summary with original prompt excerpt and event id> --role orchestrator"); return 1; }
+        let rc: i32 = storage_compaction_create(session_id, actor, summary);
+        if (rc == 0) { ui_ok("Compaction saved."); return 0; }
+        if (rc == 2) { ui_error("Compaction requires original_prompt event."); return 1; }
+        if (rc == 3) { ui_error("Compaction summary must include original prompt excerpt."); return 1; }
+        if (rc == 4) { ui_error("Compaction summary must cite at least one real event id."); return 1; }
+        ui_error("orchestrator-only control: compact");
+        return 1;
+    }
+    ui_error("Usage: conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact");
     return 1;
 }
 
@@ -902,7 +1352,9 @@ fn conductor_dispatch(argc: i32, argv: u64) -> i32 {
     if (cmd == "providers") { return command_providers(argc, argv); }
     if (cmd == "agent") { return command_agent(argc, argv); }
     if (cmd == "permission" || cmd == "permissions") { return command_permission(argc, argv); }
+    if (cmd == "skill" || cmd == "skills") { return command_skill(argc, argv); }
     if (cmd == "mcp") { return command_mcp(argc, argv); }
+    if (cmd == "control") { return command_control(argc, argv); }
     if (cmd == "session") { return command_session(argc, argv); }
     if (cmd == "context") { return command_context(argc, argv); }
     if (cmd == "env") { return command_env(argc, argv); }

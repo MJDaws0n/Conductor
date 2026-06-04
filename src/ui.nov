@@ -60,7 +60,9 @@ fn ui_help() -> void {
     std.print("  context show|add|file|clear     Manage saved project context");
     std.print("  env [NAME [VALUE]]              Manage stored provider flags and keys");
     std.print("  permission list|allow|deny|ask  Manage tool permissions");
-    std.print("  mcp list|add                    Manage MCP server entries");
+    std.print("  skill add|list|show|enable      Manage Codex-style SKILL.md files");
+    std.print("  mcp add|list|tools|call         Manage and use stdio MCP servers");
+    std.print("  control state|ask-user|compact  Orchestrator-only role controls");
     std.print("  session list|delete             Manage local sessions");
     std.print("  config check|path               Inspect Conductor configuration");
     std.print("  status                          Show active agent/model and local state");

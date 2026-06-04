@@ -83,7 +83,9 @@ conductor agent create|list|use|show|current|delete
 conductor context show|add|file|clear
 conductor env [NAME [VALUE]]
 conductor permission list|allow|deny|ask|reset
-conductor mcp list|add
+conductor skill add|list|show|enable|disable|context
+conductor mcp add|list|show|remove|tools|resources|prompts|call|serve-conductor
+conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact
 conductor session list|delete|resume|cleanup
 conductor config check|path
 conductor status
@@ -121,6 +123,40 @@ reviewer
 ```
 
 Local state is stored in `.conductor/` by default. Add `--home /path/to/data` to use another data directory.
+
+## Skills, MCP, And Roles
+
+Conductor supports Codex-style `SKILL.md` files:
+
+```sh
+conductor skill add /path/to/SKILL.md
+conductor skill list
+conductor skill context
+```
+
+Enabled skills are injected into role prompts. The skill registry and prompt assembly live in Novus.
+
+External MCP server communication uses a tiny Python stdio transport bridge because the current Novus process library does not expose long-lived bidirectional pipes. Conductor-owned MCP behavior, tool schema, policy checks, and agent dispatch stay in Novus:
+
+```sh
+conductor mcp add --name fake --command "python3 scripts/fake_mcp_server.py"
+conductor mcp tools fake
+conductor mcp call fake echo '{"msg":"hi"}'
+conductor mcp serve-conductor
+```
+
+`conductor mcp serve-conductor` declares the Conductor control server for the communicator. The communicator detects it and invokes Novus entrypoints in the Conductor binary; no Conductor control policy lives in Python. Its tools expose session state, role dispatch, user questions, chat end, compaction, decision logging, and skill activation.
+
+Role controls are policy gated:
+
+```sh
+conductor control ask-user "Need approval?" --role orchestrator
+conductor control compact "original prompt excerpt plus event-id" --role orchestrator
+```
+
+Only `orchestrator` can ask the user, end chat, dispatch roles, or compact context. Other roles record a `policy_denied` event. Each role gets separate local context under the session directory, while the session event ledger records dispatches, role input/output, decisions, and policy events.
+
+Compaction is evidence checked. A compaction must be created by `orchestrator`, include the original prompt excerpt, and cite at least one real event id from the session ledger. The saved compaction includes original prompt, summary, and cited evidence.
 
 ## Tools
 

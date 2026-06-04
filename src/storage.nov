@@ -76,6 +76,91 @@ fn storage_context_path() -> str {
     return file_io.path_join(storage_root(), "context.txt");
 }
 
+fn storage_skills_dir() -> str {
+    return file_io.path_join(storage_root(), "skills");
+}
+
+fn storage_skill_index_path() -> str {
+    return file_io.path_join(storage_skills_dir(), "index.txt");
+}
+
+fn storage_skill_path(name: str) -> str {
+    return file_io.path_join(storage_skills_dir(), name + ".txt");
+}
+
+fn storage_mcp_dir() -> str {
+    return file_io.path_join(storage_root(), "mcp");
+}
+
+fn storage_mcp_servers_dir() -> str {
+    return file_io.path_join(storage_mcp_dir(), "servers");
+}
+
+fn storage_mcp_server_index_path() -> str {
+    return file_io.path_join(storage_mcp_dir(), "servers.txt");
+}
+
+fn storage_mcp_server_path(name: str) -> str {
+    return file_io.path_join(storage_mcp_servers_dir(), name + ".txt");
+}
+
+fn storage_session_data_dir(session_id: str) -> str {
+    return file_io.path_join(storage_sessions_dir(), session_id);
+}
+
+fn storage_session_roles_dir(session_id: str) -> str {
+    return file_io.path_join(storage_session_data_dir(session_id), "roles");
+}
+
+fn storage_session_compactions_dir(session_id: str) -> str {
+    return file_io.path_join(storage_session_data_dir(session_id), "compactions");
+}
+
+fn storage_session_events_path(session_id: str) -> str {
+    return file_io.path_join(storage_session_data_dir(session_id), "events.txt");
+}
+
+fn storage_role_context_path(session_id: str, role: str) -> str {
+    return file_io.path_join(storage_session_roles_dir(session_id), role + ".txt");
+}
+
+fn storage_escape_line(value: str) -> str {
+    let out: str = std.replace(value, "\\", "\\\\");
+    out = std.replace(out, "\t", "\\t");
+    out = std.replace(out, "\r", "\\r");
+    out = std.replace(out, "\n", "\\n");
+    return out;
+}
+
+fn storage_unescape_line(value: str) -> str {
+    let out: str = std.replace(value, "\\n", "\n");
+    out = std.replace(out, "\\r", "\r");
+    out = std.replace(out, "\\t", "\t");
+    out = std.replace(out, "\\\\", "\\");
+    return out;
+}
+
+fn storage_field_value(content: str, field: str) -> str {
+    let prefix: str = field + "=";
+    let rest: str = content;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (std.starts_with(line, prefix)) {
+            return storage_unescape_line(std.trim(std.substr(line, std.len(prefix))));
+        }
+    }
+    return "";
+}
+
+fn storage_event_value(line: str, field: str) -> str {
+    let marker: str = field + "=";
+    if (!std.contains(line, marker)) { return ""; }
+    let after: str = std.split_rest(line, marker);
+    let value: str = std.split_first(after, "\t");
+    return storage_unescape_line(std.trim(value));
+}
+
 fn storage_env_get(name: str) -> str {
     storage_init();
     let path: str = storage_env_path();
@@ -151,6 +236,9 @@ fn storage_init() -> void {
     file_io.mkdirp(storage_sessions_dir());
     file_io.mkdirp(storage_agents_dir());
     file_io.mkdirp(storage_permissions_dir());
+    file_io.mkdirp(storage_skills_dir());
+    file_io.mkdirp(storage_mcp_dir());
+    file_io.mkdirp(storage_mcp_servers_dir());
     if (!file_io.file_exists(storage_config_path())) {
         file_io.write_file(storage_config_path(), "provider=openrouter\nmodel=openrouter/deepseek/deepseek-chat\n");
     }
@@ -168,6 +256,12 @@ fn storage_init() -> void {
     }
     if (!file_io.file_exists(storage_agents_index_path())) {
         file_io.write_file(storage_agents_index_path(), "conductor-agent | all | Default terminal coding agent\n");
+    }
+    if (!file_io.file_exists(storage_skill_index_path())) {
+        file_io.write_file(storage_skill_index_path(), "");
+    }
+    if (!file_io.file_exists(storage_mcp_server_index_path())) {
+        file_io.write_file(storage_mcp_server_index_path(), "");
     }
     let default_agent_path: str = file_io.path_join(storage_agents_dir(), "conductor-agent.txt");
     if (!file_io.file_exists(default_agent_path)) {
@@ -264,6 +358,7 @@ fn storage_create_session(title: str) -> str {
     file_io.write_file(path, body);
     file_io.file_append(storage_session_index_path(), id + " | " + title + "\n");
     file_io.write_file(storage_active_session_path(), id);
+    storage_session_bootstrap(id);
     return id;
 }
 
@@ -573,6 +668,275 @@ fn storage_context_append(label: str, content: str) -> void {
 fn storage_context_clear() -> void {
     storage_init();
     file_io.write_file(storage_context_path(), "");
+}
+
+fn storage_session_bootstrap(session_id: str) -> void {
+    file_io.mkdirp(storage_session_data_dir(session_id));
+    file_io.mkdirp(storage_session_roles_dir(session_id));
+    file_io.mkdirp(storage_session_compactions_dir(session_id));
+    if (!file_io.file_exists(storage_session_events_path(session_id))) {
+        file_io.write_file(storage_session_events_path(session_id), "");
+    }
+}
+
+fn storage_event_count(session_id: str) -> i32 {
+    storage_session_bootstrap(session_id);
+    let content: str = file_io.read_file(storage_session_events_path(session_id));
+    let rest: str = content;
+    let count: i32 = 0;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (std.len(std.trim(line)) > 0) { count = count + 1; }
+    }
+    return count;
+}
+
+fn storage_record_event(session_id: str, event_type: str, role: str, payload: str) -> str {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    let n: i32 = storage_event_count(session_id) + 1;
+    let t: i64 = time.get_time_ms();
+    let id: str = "event-" + std.to_str(t) + "-" + std.to_str(n);
+    let line: str = "id=" + id + "\ttype=" + storage_escape_line(event_type) + "\trole=" + storage_escape_line(role) + "\ttimestamp=" + std.to_str(t) + "\tpayload=" + storage_escape_line(payload) + "\n";
+    file_io.file_append(storage_session_events_path(session_id), line);
+    return id;
+}
+
+fn storage_events_get(session_id: str) -> str {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    return file_io.read_file(storage_session_events_path(session_id));
+}
+
+fn storage_event_exists(session_id: str, event_id: str) -> bool {
+    let events: str = storage_events_get(session_id);
+    let rest: str = events;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (storage_event_value(line, "id") == event_id) { return true; }
+    }
+    return false;
+}
+
+fn storage_role_append(session_id: str, role: str, label: str, content: str) -> void {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    let t: i64 = time.get_time_ms();
+    file_io.file_append(storage_role_context_path(session_id, role), "## " + label + " " + std.to_str(t) + "\n" + content + "\n\n");
+}
+
+fn storage_role_context_get(session_id: str, role: str) -> str {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    let path: str = storage_role_context_path(session_id, role);
+    if (!file_io.file_exists(path)) { return ""; }
+    return file_io.read_file(path);
+}
+
+fn storage_session_original_prompt(session_id: str) -> str {
+    let events: str = storage_events_get(session_id);
+    let rest: str = events;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (storage_event_value(line, "type") == "original_prompt") {
+            return storage_event_value(line, "payload");
+        }
+    }
+    return "";
+}
+
+fn storage_compaction_has_valid_event_ref(session_id: str, summary: str) -> bool {
+    let events: str = storage_events_get(session_id);
+    let rest: str = events;
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let id: str = storage_event_value(line, "id");
+        if (std.len(id) > 0) {
+            if (std.contains(summary, id)) { return true; }
+        }
+    }
+    return false;
+}
+
+fn storage_compaction_evidence(session_id: str, summary: str) -> str {
+    let events: str = storage_events_get(session_id);
+    let rest: str = events;
+    let out: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let id: str = storage_event_value(line, "id");
+        if (std.len(id) > 0) {
+            if (std.contains(summary, id)) {
+                out = out + line + "\n";
+            }
+        }
+    }
+    return out;
+}
+
+fn storage_compaction_create(session_id: str, actor_role: str, summary: str) -> i32 {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    if (actor_role != "orchestrator") { return 1; }
+    let original: str = storage_session_original_prompt(session_id);
+    if (std.len(std.trim(original)) == 0) { return 2; }
+    let excerpt: str = original;
+    if (std.len(excerpt) > 60) { excerpt = std.substr_len(excerpt, 0, 60); }
+    if (!std.contains(summary, excerpt)) { return 3; }
+    let events: str = storage_events_get(session_id);
+    if (std.len(std.trim(events)) > 0) {
+        if (!storage_compaction_has_valid_event_ref(session_id, summary)) { return 4; }
+    }
+    let id: str = "compaction-" + std.to_str(time.get_time_ms());
+    let path: str = file_io.path_join(storage_session_compactions_dir(session_id), id + ".md");
+    let evidence: str = storage_compaction_evidence(session_id, summary);
+    let body: str = "# " + id + "\n\nsession=" + session_id + "\nrole=" + actor_role + "\n\n## Original prompt\n" + original + "\n\n## Summary\n" + summary + "\n\n## Evidence\n" + evidence + "\n";
+    file_io.write_file(path, body);
+    storage_record_event(session_id, "compaction", actor_role, id);
+    return 0;
+}
+
+fn storage_skill_register(name: str, desc: str, source_path: str, content: str) -> i32 {
+    storage_init();
+    let clean: str = std.trim(name);
+    if (std.len(clean) == 0) { return 1; }
+    let path: str = storage_skill_path(clean);
+    if (file_io.file_exists(path)) { return 2; }
+    file_io.write_file(path, "name=" + storage_escape_line(clean) + "\ndescription=" + storage_escape_line(desc) + "\nsource=" + storage_escape_line(source_path) + "\nenabled=1\n===CONTENT===\n" + content);
+    file_io.file_append(storage_skill_index_path(), clean + " | " + desc + " | " + source_path + "\n");
+    return 0;
+}
+
+fn storage_skill_exists(name: str) -> bool {
+    storage_init();
+    return file_io.file_exists(storage_skill_path(name));
+}
+
+fn storage_skill_get(name: str) -> str {
+    storage_init();
+    if (!storage_skill_exists(name)) { return ""; }
+    return file_io.read_file(storage_skill_path(name));
+}
+
+fn storage_skill_set_enabled(name: str, enabled: bool) -> i32 {
+    storage_init();
+    if (!storage_skill_exists(name)) { return 1; }
+    let content: str = file_io.read_file(storage_skill_path(name));
+    let rest: str = content;
+    let out: str = "";
+    let value: str = "0";
+    if (enabled) { value = "1"; }
+    let found: bool = false;
+    while (std.len(rest) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        if (std.starts_with(line, "enabled=")) {
+            out = out + "enabled=" + value + "\n";
+            found = true;
+        } else {
+            out = out + line + "\n";
+        }
+        if (!std.contains(rest, "\n")) {
+            if (std.len(rest) > 0) {
+                if (std.starts_with(rest, "enabled=")) { out = out + "enabled=" + value + "\n"; found = true; }
+                else { out = out + rest + "\n"; }
+            }
+            rest = "";
+        }
+    }
+    if (!found) { out = out + "enabled=" + value + "\n"; }
+    file_io.write_file(storage_skill_path(name), out);
+    return 0;
+}
+
+fn storage_skill_list() -> str {
+    storage_init();
+    let idx: str = file_io.read_file(storage_skill_index_path());
+    let rest: str = idx;
+    let out: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let name: str = std.trim(std.split_first(line, "|"));
+        let enabled: str = "0";
+        if (storage_skill_exists(name)) {
+            let cfg: str = storage_skill_get(name);
+            enabled = storage_field_value(cfg, "enabled");
+        }
+        out = out + name + " | enabled=" + enabled + " | " + std.trim(std.split_rest(line, "|")) + "\n";
+    }
+    return out;
+}
+
+fn storage_enabled_skills_context() -> str {
+    storage_init();
+    let idx: str = file_io.read_file(storage_skill_index_path());
+    let rest: str = idx;
+    let out: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let name: str = std.trim(std.split_first(line, "|"));
+        if (storage_skill_exists(name)) {
+            let cfg: str = storage_skill_get(name);
+            if (storage_field_value(cfg, "enabled") == "1") {
+                let desc: str = storage_field_value(cfg, "description");
+                let body: str = std.split_rest(cfg, "===CONTENT===\n");
+                out = out + "## Skill: " + name + "\nDescription: " + desc + "\n" + body + "\n\n";
+            }
+        }
+    }
+    return out;
+}
+
+fn storage_mcp_server_create(name: str, command: str) -> i32 {
+    storage_init();
+    let clean: str = std.trim(name);
+    if (std.len(clean) == 0) { return 1; }
+    if (std.len(std.trim(command)) == 0) { return 3; }
+    let path: str = storage_mcp_server_path(clean);
+    if (file_io.file_exists(path)) { return 2; }
+    file_io.write_file(path, "name=" + storage_escape_line(clean) + "\ntransport=stdio\ncommand=" + storage_escape_line(command) + "\n");
+    file_io.file_append(storage_mcp_server_index_path(), clean + " | stdio | " + command + "\n");
+    return 0;
+}
+
+fn storage_mcp_server_exists(name: str) -> bool {
+    storage_init();
+    return file_io.file_exists(storage_mcp_server_path(name));
+}
+
+fn storage_mcp_server_get(name: str) -> str {
+    storage_init();
+    if (!storage_mcp_server_exists(name)) { return ""; }
+    return file_io.read_file(storage_mcp_server_path(name));
+}
+
+fn storage_mcp_server_list() -> str {
+    storage_init();
+    return file_io.read_file(storage_mcp_server_index_path());
+}
+
+fn storage_mcp_server_delete(name: str) -> i32 {
+    storage_init();
+    if (!storage_mcp_server_exists(name)) { return 1; }
+    file_io.file_delete(storage_mcp_server_path(name));
+    let idx: str = file_io.read_file(storage_mcp_server_index_path());
+    let rest: str = idx;
+    let out: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let cur: str = std.trim(std.split_first(line, "|"));
+        if (cur != name) { out = out + line + "\n"; }
+    }
+    file_io.write_file(storage_mcp_server_index_path(), out);
+    return 0;
 }
 
 fn storage_agent_prompt(name: str) -> str {

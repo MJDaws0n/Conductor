@@ -53,4 +53,49 @@ project="$(mktemp -d)"
 out="$(cd "$project" && "$bin" init --home "$home")"
 grep -q "Conductor state ready" <<<"$out"
 
+skill_dir="$(mktemp -d)"
+cat >"$skill_dir/SKILL.md" <<'EOF'
+---
+name: smoke-skill
+description: Smoke skill
+---
+Always include smoke skill context.
+EOF
+out="$("$bin" skill add "$skill_dir/SKILL.md" --home "$home")"
+grep -q "Skill added" <<<"$out"
+out="$("$bin" skill context --home "$home")"
+grep -q "smoke skill context" <<<"$out"
+out="$("$bin" skill disable smoke-skill --home "$home")"
+grep -q "Skill disabled" <<<"$out"
+
+chmod +x "$repo_root/scripts/mcp_stdio_bridge.py" "$repo_root/scripts/fake_mcp_server.py"
+out="$("$bin" mcp add --name fake --command "python3 $repo_root/scripts/fake_mcp_server.py" --home "$home")"
+grep -q "MCP server added" <<<"$out"
+out="$("$bin" mcp tools fake --home "$home")"
+grep -q "echo" <<<"$out"
+out="$("$bin" mcp call fake echo '{"msg":"hi"}' --home "$home")"
+grep -q "hi" <<<"$out"
+
+out="$("$bin" orchestrate "control test" --home "$home")"
+grep -q "session:" <<<"$out"
+state="$("$bin" control state --home "$home")"
+event_id="$(grep -o 'event-[0-9][0-9]*-[0-9][0-9]*' <<<"$state" | head -n1)"
+test -n "$event_id"
+if "$bin" control ask-user "bad role" --role reviewer --home "$home" >/tmp/conductor-smoke-denied.txt 2>&1; then
+  echo "reviewer ask-user unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q "orchestrator-only" /tmp/conductor-smoke-denied.txt
+out="$("$bin" control ask-user "continue?" --role orchestrator --home "$home")"
+grep -q "QUESTION" <<<"$out"
+out="$("$bin" control compact "control test $event_id" --role orchestrator --home "$home")"
+grep -q "Compaction saved" <<<"$out"
+
+out="$("$bin" mcp add --name conductor-control --command "$bin mcp serve-conductor --home $home" --home "$home")"
+grep -q "MCP server added" <<<"$out"
+out="$("$bin" mcp tools conductor-control --home "$home")"
+grep -q "conductor.ask_user" <<<"$out"
+out="$("$bin" mcp call conductor-control conductor.record_decision "{\"role\":\"reviewer\",\"text\":\"mcp decision\"}" --home "$home")"
+grep -q "decision recorded" <<<"$out"
+
 echo "Smoke tests passed."

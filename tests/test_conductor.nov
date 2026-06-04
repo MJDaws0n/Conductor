@@ -84,6 +84,31 @@ fn main() -> i32 {
     let tool_out: str = ai_execute_tool("bash", "echo tool_test");
     failures = failures + assert_true(std.contains(tool_out, "tool_test"), "ai_execute_tool bash works");
 
+    // Skills, MCP registry, role context, and event ledger tests
+    let skill_name: str = "skill-" + storage_new_session_id();
+    let skill_content: str = "---\nname: " + skill_name + "\ndescription: test skill\n---\nUse terse test output.\n";
+    failures = failures + assert_true(storage_skill_register(skill_name, "test skill", "/tmp/SKILL.md", skill_content) == 0, "skill register");
+    failures = failures + assert_true(std.contains(storage_skill_list(), skill_name), "skill list includes registered skill");
+    failures = failures + assert_true(std.contains(storage_enabled_skills_context(), "Use terse test output"), "enabled skill context includes body");
+    failures = failures + assert_true(storage_skill_set_enabled(skill_name, false) == 0, "skill disable");
+    failures = failures + assert_true(!std.contains(storage_enabled_skills_context(), "Use terse test output"), "disabled skill omitted from context");
+
+    let mcp_name: str = "mcp-" + storage_new_session_id();
+    failures = failures + assert_true(storage_mcp_server_create(mcp_name, "python3 scripts/fake_mcp_server.py") == 0, "mcp server create");
+    failures = failures + assert_true(std.contains(storage_mcp_server_list(), mcp_name), "mcp server list");
+    failures = failures + assert_true(std.contains(storage_mcp_server_get(mcp_name), "fake_mcp_server.py"), "mcp server get");
+
+    let sid3: str = storage_create_session("ledger-session");
+    let original_id: str = storage_record_event(sid3, "original_prompt", "user", "compact test prompt");
+    let ev_id: str = storage_record_event(sid3, "decision", "orchestrator", "keep evidence");
+    failures = failures + assert_true(storage_event_exists(sid3, ev_id), "event exists");
+    storage_role_append(sid3, "coder", "note", "role-local memory");
+    failures = failures + assert_true(std.contains(storage_role_context_get(sid3, "coder"), "role-local memory"), "role context persists");
+    failures = failures + assert_true(storage_compaction_create(sid3, "reviewer", "compact test prompt " + ev_id) == 1, "non-orchestrator compaction denied");
+    failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "missing prompt " + ev_id) == 3, "compaction requires prompt excerpt");
+    failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "compact test prompt missing-event") == 4, "compaction requires real event id");
+    failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "compact test prompt " + ev_id) == 0, "compaction saves with evidence");
+
     if (failures == 0) {
         std.print("All Conductor Novus tests passed.");
         return 0;
