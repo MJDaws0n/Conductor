@@ -72,6 +72,8 @@ Run an optional low-cost live smoke against DeepSeek V4 Pro:
 OPENROUTER_API_KEY="sk_..." ./scripts/live_deepseek_smoke.sh
 ```
 
+Live `run` and `chat` calls stream OpenRouter tokens to the terminal and still save the final response into the local session.
+
 Provider keys can be configured with Conductor-stored environment values, files, GPG, or OS keyrings:
 
 ```sh

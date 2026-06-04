@@ -38,6 +38,7 @@ if ! command -v novus >/dev/null 2>&1; then
 fi
 
 PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-/tmp/conductor-pyc}" python3 -m py_compile \
+  scripts/openrouter_stream.py \
   scripts/mcp_stdio_bridge.py \
   scripts/fake_mcp_server.py \
   scripts/fake_http_mcp_server.py

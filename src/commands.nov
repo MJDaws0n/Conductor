@@ -582,14 +582,14 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     storage_append_message(id, "user", message);
     let response: str = "";
     let model_prompt: str = build_agent_prompt(message, agent);
-    if (ai_provider_exists(provider)) {
-        response = ai_run(model_prompt, model, provider);
-    } else {
-        response = ai_placeholder_response(model_prompt, model, agent);
-    }
     ui_logo();
     std.print("");
-    std.print(response);
+    if (ai_provider_exists(provider)) {
+        response = ai_run_stream(model_prompt, model, provider);
+    } else {
+        response = ai_placeholder_response(model_prompt, model, agent);
+        std.print(response);
+    }
     // execute any TOOL: directives in the assistant response (auto-run allowed tools)
     process_tool_commands_from_response(response);
     storage_append_message(id, "assistant", response);
@@ -1332,12 +1332,13 @@ fn shell_run_message(message: str) -> void {
     let provider: str = storage_get_active_provider();
     let response: str = "";
     let model_prompt: str = build_agent_prompt(message, agent);
+    std.print("Conductor:");
     if (ai_provider_exists(provider)) {
-        response = ai_run(model_prompt, model, provider);
+        response = ai_run_stream(model_prompt, model, provider);
     } else {
         response = ai_placeholder_response(model_prompt, model, agent);
+        std.print(response);
     }
-    std.print("Conductor: " + response);
     // Auto-execute any TOOL directives in response
     process_tool_commands_from_response(response);
     let title: str = message;

@@ -246,6 +246,23 @@ fn ai_shell_output_full(cmd: str, max_len: i32) -> str {
     return process.capture_output_full(sh, av, max_len);
 }
 
+fn ai_openrouter_payload(prompt: str, model: str, provider: str, stream: bool) -> str {
+    let safe_input: str = ai_json_escape(prompt);
+    let max_tokens: i32 = ai_openrouter_max_tokens();
+    let stream_flag: str = "false";
+    if (stream) { stream_flag = "true"; }
+    return "{\"model\":\"" + model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"" + safe_input + "\"}],\"stream\":" + stream_flag + ",\"max_tokens\":" + std.to_str(max_tokens) + ",\"temperature\":0.2" + ai_openrouter_reasoning_body(provider) + ai_openrouter_provider_body(provider) + "}";
+}
+
+fn ai_openrouter_key(provider: str) -> str {
+    let key: str = provider_get_api_key(provider);
+    if (std.len(std.trim(key)) == 0) {
+        key = storage_env_get("OPENROUTER_API_KEY");
+        if (std.len(std.trim(key)) == 0) { key = storage_process_env_get("OPENROUTER_API_KEY"); }
+    }
+    return std.trim(key);
+}
+
 fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
     if (std.len(std.trim(model)) == 0) { model = ai_model_at("openrouter", 0); }
     model = ai_openrouter_model_name(model);
@@ -254,13 +271,7 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
         return ai_openrouter_mock_response(prompt, model, provider);
     }
 
-    // Use provider_get_api_key to authenticate (supports env:, file:, gpg:, keyring:)
-    let key: str = provider_get_api_key(provider);
-    if (std.len(std.trim(key)) == 0) {
-        // fallback to Conductor's stored environment values
-        key = storage_env_get("OPENROUTER_API_KEY");
-        if (std.len(std.trim(key)) == 0) { key = storage_process_env_get("OPENROUTER_API_KEY"); }
-    }
+    let key: str = ai_openrouter_key(provider);
     if (std.len(std.trim(key)) == 0) {
         return "Error: OPENROUTER_API_KEY not set (or provider connection).";
     }
@@ -274,9 +285,7 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
     }
 
     let url: str = "https://openrouter.ai/api/v1/chat/completions";
-    let safe_input: str = ai_json_escape(prompt);
-    let max_tokens: i32 = ai_openrouter_max_tokens();
-    let payload: str = "{\"model\":\"" + model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"" + safe_input + "\"}],\"stream\":false,\"max_tokens\":" + std.to_str(max_tokens) + ",\"temperature\":0.2" + ai_openrouter_reasoning_body(provider) + ai_openrouter_provider_body(provider) + "}";
+    let payload: str = ai_openrouter_payload(prompt, model, provider, false);
     let tmp_dir: str = file_io.path_join(storage_root(), "tmp");
     file_io.mkdirp(tmp_dir);
     let req_id: str = storage_new_session_id();
@@ -300,6 +309,52 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
         return ai_openrouter_extract_content(body);
     }
     return "Error: HTTP " + std.to_str(http_code) + " - " + body;
+}
+
+fn ai_openrouter_request_stream(prompt: str, model: str, provider: str) -> str {
+    if (std.len(std.trim(model)) == 0) { model = ai_model_at(provider, 0); }
+    if (std.len(std.trim(model)) == 0) { model = ai_model_at("deepseek", 0); }
+    model = ai_openrouter_model_name(model);
+
+    if (!ai_openrouter_live_enabled()) {
+        let mock: str = ai_openrouter_mock_response(prompt, model, provider);
+        std.print(mock);
+        return mock;
+    }
+
+    let key: str = ai_openrouter_key(provider);
+    if (std.len(std.trim(key)) == 0) {
+        let err: str = "Error: OPENROUTER_API_KEY not set (or provider connection).";
+        std.print(err);
+        return err;
+    }
+    if (std.lower(std.trim(key)) == "mock") {
+        let mock2: str = ai_openrouter_mock_response(prompt, model, provider);
+        std.print(mock2);
+        return mock2;
+    }
+
+    let tmp_dir: str = file_io.path_join(storage_root(), "tmp");
+    file_io.mkdirp(tmp_dir);
+    let req_id: str = storage_new_session_id();
+    let payload_path: str = file_io.path_join(tmp_dir, req_id + ".stream.json");
+    let key_path: str = file_io.path_join(tmp_dir, req_id + ".key");
+    let out_path: str = file_io.path_join(tmp_dir, req_id + ".stream.out");
+    file_io.write_file(payload_path, ai_openrouter_payload(prompt, model, provider, true));
+    file_io.write_file(key_path, key);
+
+    let helper: str = "scripts/openrouter_stream.py";
+    let cmd: str = "python3 " + ai_shell_quote(helper) + " --payload " + ai_shell_quote(payload_path) + " --key-file " + ai_shell_quote(key_path) + " --out " + ai_shell_quote(out_path);
+    let rc: i32 = process.shell_exec(cmd);
+    let response: str = "";
+    if (file_io.file_exists(out_path)) { response = file_io.read_file(out_path); }
+    file_io.file_delete(payload_path);
+    file_io.file_delete(key_path);
+    if (file_io.file_exists(out_path)) { file_io.file_delete(out_path); }
+    if (rc != 0 && std.len(std.trim(response)) == 0) {
+        return "Error: OpenRouter streaming request failed.";
+    }
+    return std.trim(response);
 }
 
 fn ai_openrouter_extract_content(body: str) -> str {
@@ -368,6 +423,16 @@ fn ai_run(prompt: str, model: str, provider: str) -> str {
         return ai_openrouter_request(prompt, model, provider);
     }
     return ai_placeholder_response(prompt, model, "");
+}
+
+fn ai_run_stream(prompt: str, model: str, provider: str) -> str {
+    if (std.len(std.trim(provider)) == 0) { provider = ai_default_provider(); }
+    if (ai_provider_uses_openrouter(provider)) {
+        return ai_openrouter_request_stream(prompt, model, provider);
+    }
+    let fallback: str = ai_placeholder_response(prompt, model, "");
+    std.print(fallback);
+    return fallback;
 }
 
 fn ai_placeholder_response(prompt: str, model: str, agent: str) -> str {
