@@ -2,7 +2,7 @@
 
 Conductor is a CLI-only Novus/Nox terminal agent for coding, planning, tool use, and local session management.
 
-The app runs in OpenRouter test mode by default. Test mode is deterministic, uses no network call, and spends no OpenRouter credits. Live OpenRouter calls require an explicit opt-in flag plus an API key.
+The app runs in OpenRouter test mode by default. Test mode is deterministic, uses no network call, and spends no OpenRouter credits. Live OpenRouter calls require an explicit opt-in flag plus an API key. The default production provider is `deepseek`, pinned to OpenRouter model `deepseek/deepseek-v4-pro` and routed only to the official DeepSeek provider.
 
 ## Build
 
@@ -54,6 +54,8 @@ To make a real OpenRouter request:
 ```sh
 conductor env OPENROUTER_API_KEY "sk_..."
 conductor env CONDUCTOR_OPENROUTER_LIVE 1
+conductor env CONDUCTOR_OPENROUTER_MAX_TOKENS 2048
+conductor env CONDUCTOR_OPENROUTER_REASONING_EFFORT minimal
 conductor run "summarize this repo"
 ```
 
@@ -66,6 +68,7 @@ conductor env CONDUCTOR_OPENROUTER_TEST 1
 Provider keys can be configured with Conductor-stored environment values, files, GPG, or OS keyrings:
 
 ```sh
+conductor providers use deepseek
 conductor providers add --name myopen --kind openrouter --conn env:MY_OPENROUTER_KEY
 conductor env MY_OPENROUTER_KEY "sk_..."
 conductor providers use myopen
@@ -105,7 +108,7 @@ conductor help
 
 ```text
 Conductor terminal agent shell
-agent=conductor-agent  model=openrouter/deepseek/deepseek-chat
+agent=conductor-agent  model=deepseek/deepseek-v4-pro
 Type /help for commands or just type a prompt.
 conductor> /agent use reviewer
 conductor> /context add spec Use project tests before final answers
@@ -162,6 +165,13 @@ conductor control compact "original prompt excerpt plus event-id" --role orchest
 Only `orchestrator` can ask the user, end chat, dispatch roles, or compact context. Other roles record a `policy_denied` event. Each role gets separate local context under the session directory, while the session event ledger records dispatches, role input/output, decisions, and policy events.
 
 Compaction is evidence checked. A compaction must be created by `orchestrator`, include the original prompt excerpt, and cite at least one real event id from the session ledger. The saved compaction includes original prompt, summary, and cited evidence.
+
+Automatic compaction is also evidence checked. Set `CONDUCTOR_COMPACT_AFTER_CHARS` for early testing; production default is roughly the 1M-token range:
+
+```sh
+conductor env CONDUCTOR_COMPACT_AFTER_CHARS 2000
+conductor control compact-auto --role orchestrator
+```
 
 ## Tools
 

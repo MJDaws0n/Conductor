@@ -538,12 +538,14 @@ fn run_agent_turn(agent: str, task: str, model: str, provider: str, session_id: 
         storage_record_event(session_id, "role_output", agent, response);
         storage_role_append(session_id, agent, "input", task);
         storage_role_append(session_id, agent, "output", response);
+        storage_auto_compact_if_needed(session_id);
         return response;
     }
     let fallback: str = ai_placeholder_response(model_prompt, model, agent);
     storage_record_event(session_id, "role_output", agent, fallback);
     storage_role_append(session_id, agent, "input", task);
     storage_role_append(session_id, agent, "output", fallback);
+    storage_auto_compact_if_needed(session_id);
     return fallback;
 }
 
@@ -571,6 +573,13 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     if (std.len(std.trim(message)) == 0) {
         message = std.input("Message: ", 4096);
     }
+    let title: str = message;
+    if (std.len(title) > 48) {
+        title = std.substr_len(title, 0, 48);
+    }
+    let id: str = storage_create_session(title);
+    storage_record_event(id, "original_prompt", "user", message);
+    storage_append_message(id, "user", message);
     let response: str = "";
     let model_prompt: str = build_agent_prompt(message, agent);
     if (ai_provider_exists(provider)) {
@@ -583,11 +592,10 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     std.print(response);
     // execute any TOOL: directives in the assistant response (auto-run allowed tools)
     process_tool_commands_from_response(response);
-    let title: str = message;
-    if (std.len(title) > 48) {
-        title = std.substr_len(title, 0, 48);
-    }
-    let id: str = storage_record_session(title, message, response);
+    storage_append_message(id, "assistant", response);
+    storage_record_event(id, "role_output", agent, response);
+    storage_auto_compact_if_needed(id);
+    storage_increment_runs();
     std.print("");
     ui_kv("session", id);
     return 0;
@@ -1055,7 +1063,7 @@ fn command_control(argc: i32, argv: u64) -> i32 {
     storage_init();
     let session_id: str = option_value(argc, argv, "--session", storage_get_active_session());
     let actor: str = option_value(argc, argv, "--role", "orchestrator");
-    if (argc < 3) { ui_error("Usage: conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact"); return 1; }
+    if (argc < 3) { ui_error("Usage: conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact|compact-auto"); return 1; }
     if (std.len(std.trim(session_id)) == 0) { ui_error("No active session."); return 1; }
     storage_session_bootstrap(session_id);
     let sub: str = arg_at(argv, 2);
@@ -1126,7 +1134,21 @@ fn command_control(argc: i32, argv: u64) -> i32 {
         ui_error("orchestrator-only control: compact");
         return 1;
     }
-    ui_error("Usage: conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact");
+    if (sub == "compact-auto") {
+        if (actor != "orchestrator") {
+            storage_record_event(session_id, "policy_denied", actor, "compact-auto");
+            ui_error("orchestrator-only control: compact-auto");
+            return 1;
+        }
+        let rc_auto: i32 = storage_auto_compact_if_needed(session_id);
+        if (rc_auto == 0) { ui_ok("Auto compaction saved."); return 0; }
+        if (rc_auto == 5) { ui_warn("Compaction threshold not reached."); return 0; }
+        if (rc_auto == 2) { ui_error("Compaction requires original_prompt event."); return 1; }
+        if (rc_auto == 4) { ui_error("Compaction requires a real event id."); return 1; }
+        ui_error("Auto compaction failed.");
+        return 1;
+    }
+    ui_error("Usage: conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact|compact-auto");
     return 1;
 }
 

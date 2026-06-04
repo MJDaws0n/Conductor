@@ -21,7 +21,7 @@ fn storage_set_home_override(path: str) -> void {
 }
 
 fn storage_process_env_get(name: str) -> str {
-    return "";
+    return std.trim(env.getenv(name));
 }
 
 fn storage_root() -> str {
@@ -240,7 +240,7 @@ fn storage_init() -> void {
     file_io.mkdirp(storage_mcp_dir());
     file_io.mkdirp(storage_mcp_servers_dir());
     if (!file_io.file_exists(storage_config_path())) {
-        file_io.write_file(storage_config_path(), "provider=openrouter\nmodel=openrouter/deepseek/deepseek-chat\n");
+        file_io.write_file(storage_config_path(), "provider=deepseek\nmodel=deepseek/deepseek-v4-pro\n");
     }
     if (!file_io.file_exists(storage_session_index_path())) {
         file_io.write_file(storage_session_index_path(), "");
@@ -252,7 +252,7 @@ fn storage_init() -> void {
         file_io.write_file(storage_active_agent_path(), "conductor-agent");
     }
     if (!file_io.file_exists(storage_active_model_path())) {
-        file_io.write_file(storage_active_model_path(), "openrouter/deepseek/deepseek-chat");
+        file_io.write_file(storage_active_model_path(), "deepseek/deepseek-v4-pro");
     }
     if (!file_io.file_exists(storage_agents_index_path())) {
         file_io.write_file(storage_agents_index_path(), "conductor-agent | all | Default terminal coding agent\n");
@@ -280,7 +280,7 @@ fn storage_init() -> void {
     // Ensure providers exist and set default active provider if missing
     storage_providers_init();
     if (!file_io.file_exists(storage_active_provider_path())) {
-        file_io.write_file(storage_active_provider_path(), "openrouter");
+        file_io.write_file(storage_active_provider_path(), "deepseek");
     }
     storage_migrate_defaults();
 }
@@ -289,19 +289,25 @@ fn storage_migrate_defaults() -> void {
     if (file_io.file_exists(storage_active_model_path())) {
         let active_model: str = std.trim(file_io.read_file(storage_active_model_path()));
         if (active_model == "openrouter-placeholder/conductor-dev") {
-            file_io.write_file(storage_active_model_path(), "openrouter/deepseek/deepseek-chat");
+            file_io.write_file(storage_active_model_path(), "deepseek/deepseek-v4-pro");
+        }
+        if (active_model == "openrouter/deepseek/deepseek-chat") {
+            file_io.write_file(storage_active_model_path(), "deepseek/deepseek-v4-pro");
         }
     }
     if (file_io.file_exists(storage_active_provider_path())) {
         let active_provider: str = std.trim(file_io.read_file(storage_active_provider_path()));
         if (active_provider == "openrouter-placeholder") {
-            file_io.write_file(storage_active_provider_path(), "openrouter");
+            file_io.write_file(storage_active_provider_path(), "deepseek");
         }
     }
     if (file_io.file_exists(storage_config_path())) {
         let cfg: str = file_io.read_file(storage_config_path());
         if (std.contains(cfg, "openrouter-placeholder/conductor-dev")) {
-            file_io.write_file(storage_config_path(), "provider=openrouter\nmodel=openrouter/deepseek/deepseek-chat\n");
+            file_io.write_file(storage_config_path(), "provider=deepseek\nmodel=deepseek/deepseek-v4-pro\n");
+        }
+        if (std.contains(cfg, "openrouter/deepseek/deepseek-chat")) {
+            file_io.write_file(storage_config_path(), "provider=deepseek\nmodel=deepseek/deepseek-v4-pro\n");
         }
     }
 }
@@ -801,6 +807,55 @@ fn storage_compaction_create(session_id: str, actor_role: str, summary: str) -> 
     return 0;
 }
 
+fn storage_session_context_chars(session_id: str) -> i32 {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    let total: i32 = std.len(storage_events_get(session_id));
+    total = total + std.len(storage_role_context_get(session_id, "orchestrator"));
+    total = total + std.len(storage_role_context_get(session_id, "designer"));
+    total = total + std.len(storage_role_context_get(session_id, "coder"));
+    total = total + std.len(storage_role_context_get(session_id, "reviewer"));
+    return total;
+}
+
+fn storage_auto_compact_threshold_chars() -> i32 {
+    let raw: str = storage_env_get("CONDUCTOR_COMPACT_AFTER_CHARS");
+    if (std.len(std.trim(raw)) == 0) { raw = storage_process_env_get("CONDUCTOR_COMPACT_AFTER_CHARS"); }
+    if (std.len(std.trim(raw)) == 0) { return 4000000; }
+    let n: i32 = std.to_i32(std.trim(raw));
+    if (n <= 0) { return 4000000; }
+    return n;
+}
+
+fn storage_last_event_id(session_id: str) -> str {
+    let events: str = storage_events_get(session_id);
+    let rest: str = events;
+    let last: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let id: str = storage_event_value(line, "id");
+        if (std.len(id) > 0) { last = id; }
+    }
+    return last;
+}
+
+fn storage_auto_compact_if_needed(session_id: str) -> i32 {
+    storage_init();
+    storage_session_bootstrap(session_id);
+    let threshold: i32 = storage_auto_compact_threshold_chars();
+    let chars: i32 = storage_session_context_chars(session_id);
+    if (chars < threshold) { return 5; }
+    let original: str = storage_session_original_prompt(session_id);
+    if (std.len(std.trim(original)) == 0) { return 2; }
+    let excerpt: str = original;
+    if (std.len(excerpt) > 60) { excerpt = std.substr_len(excerpt, 0, 60); }
+    let evidence_id: str = storage_last_event_id(session_id);
+    if (std.len(std.trim(evidence_id)) == 0) { return 4; }
+    let summary: str = "Auto compaction threshold reached.\noriginal prompt excerpt: " + excerpt + "\ncontext_chars=" + std.to_str(chars) + "\nthreshold_chars=" + std.to_str(threshold) + "\nevidence=" + evidence_id + "\nKeep role goals, current task state, decisions, and next checks from cited ledger evidence.";
+    return storage_compaction_create(session_id, "orchestrator", summary);
+}
+
 fn storage_skill_register(name: str, desc: str, source_path: str, content: str) -> i32 {
     storage_init();
     let clean: str = std.trim(name);
@@ -1004,12 +1059,22 @@ fn storage_providers_init() -> void {
     let pdir: str = storage_providers_dir();
     file_io.mkdirp(pdir);
     if (!file_io.file_exists(storage_provider_index_path())) {
-        file_io.write_file(storage_provider_index_path(), "openrouter | env:OPENROUTER_API_KEY | default\n");
+        file_io.write_file(storage_provider_index_path(), "");
     }
-    // create provider file for default if missing
-    let ppath: str = storage_provider_path("openrouter");
-    if (!file_io.file_exists(ppath)) {
-        file_io.write_file(ppath, "name=openrouter\nkind=openrouter\nconnection=env:OPENROUTER_API_KEY\n");
+    storage_provider_seed("deepseek", "openrouter", "env:OPENROUTER_API_KEY", "official DeepSeek via OpenRouter", "deepseek");
+    storage_provider_seed("openrouter", "openrouter", "env:OPENROUTER_API_KEY", "OpenRouter generic", "");
+}
+
+fn storage_provider_seed(name: str, kind: str, conn: str, label: str, provider_only: str) -> void {
+    let path: str = storage_provider_path(name);
+    if (!file_io.file_exists(path)) {
+        let body: str = "name=" + name + "\nkind=" + kind + "\nconnection=" + conn + "\n";
+        if (std.len(std.trim(provider_only)) > 0) { body = body + "provider_only=" + provider_only + "\n"; }
+        file_io.write_file(path, body);
+    }
+    let idx: str = file_io.read_file(storage_provider_index_path());
+    if (!std.contains(idx, name + " |")) {
+        file_io.file_append(storage_provider_index_path(), name + " | " + conn + " | " + label + "\n");
     }
 }
 

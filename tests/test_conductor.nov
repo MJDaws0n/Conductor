@@ -19,11 +19,17 @@ fn assert_true(ok: bool, name: str) -> i32 {
 
 fn main() -> i32 {
     let failures: i32 = 0;
+    storage_env_set("CONDUCTOR_TEST_MODE", "0");
+    storage_env_set("CONDUCTOR_OPENROUTER_TEST", "0");
+    storage_env_set("OPENROUTER_MOCK", "0");
+    storage_env_set("CONDUCTOR_OPENROUTER_LIVE", "0");
+    storage_set_active_provider("deepseek");
+    storage_set_active_model("deepseek/deepseek-v4-pro");
     failures = failures + assert_true(ai_provider_exists("openrouter-placeholder"), "default provider exists");
-    failures = failures + assert_true(ai_model_count("openrouter-placeholder") == 4, "default model count");
+    failures = failures + assert_true(ai_model_count("deepseek") == 2, "default deepseek model count");
     failures = failures + assert_true(ai_openrouter_mode() == "test", "openrouter defaults to test mode");
-    failures = failures + assert_true(std.contains(ai_model_at("openrouter", 0), "deepseek"), "default openrouter model is deepseek");
-    failures = failures + assert_true(storage_get_active_model() == "openrouter/deepseek/deepseek-chat", "active model default migrated");
+    failures = failures + assert_true(ai_model_at("deepseek", 0) == "deepseek/deepseek-v4-pro", "default deepseek model is v4 pro");
+    failures = failures + assert_true(storage_get_active_model() == "deepseek/deepseek-v4-pro", "active model default migrated");
     failures = failures + assert_true(std.contains(ai_placeholder_response("hello", "", ""), "hello"), "placeholder response echoes prompt");
     failures = failures + assert_true(std.contains(ai_openapi_placeholder(), "Conductor API"), "openapi placeholder title");
     failures = failures + assert_true(storage_permission_exists("bash"), "bash permission exists");
@@ -40,7 +46,7 @@ fn main() -> i32 {
     storage_context_clear();
     storage_context_append("spec", "keep this context");
     failures = failures + assert_true(std.contains(storage_context_get(), "keep this context"), "context persists");
-    failures = failures + assert_true(std.contains(storage_status_text(), "provider=openrouter"), "status includes provider");
+    failures = failures + assert_true(std.contains(storage_status_text(), "provider=deepseek"), "status includes provider");
 
     // Session behavior tests
     let sid1: str = storage_create_session("test-session-1");
@@ -112,6 +118,8 @@ fn main() -> i32 {
     failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "missing prompt " + ev_id) == 3, "compaction requires prompt excerpt");
     failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "compact test prompt missing-event") == 4, "compaction requires real event id");
     failures = failures + assert_true(storage_compaction_create(sid3, "orchestrator", "compact test prompt " + ev_id) == 0, "compaction saves with evidence");
+    storage_env_set("CONDUCTOR_COMPACT_AFTER_CHARS", "1");
+    failures = failures + assert_true(storage_auto_compact_if_needed(sid3) == 0, "auto compaction saves when threshold reached");
 
     if (failures == 0) {
         std.print("All Conductor Novus tests passed.");

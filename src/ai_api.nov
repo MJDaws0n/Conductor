@@ -7,7 +7,7 @@ import ../lib/file_io file_io;
 import storage;
 
 fn ai_default_provider() -> str {
-    return "openrouter";
+    return "deepseek";
 }
 
 fn ai_default_model() -> str {
@@ -64,7 +64,7 @@ fn ai_openrouter_mode() -> str {
 
 fn ai_openrouter_model_name(model: str) -> str {
     if (std.starts_with(model, "openrouter/")) { return std.substr(model, 11); }
-    if (std.starts_with(model, "openrouter-placeholder/")) { return "deepseek/deepseek-chat"; }
+    if (std.starts_with(model, "openrouter-placeholder/")) { return "deepseek/deepseek-v4-pro"; }
     return model;
 }
 
@@ -86,23 +86,34 @@ fn ai_provider_exists(provider: str) -> bool {
     storage_init();
     if (provider == "openrouter-placeholder") { return true; }
     if (provider == "openrouter") { return true; }
+    if (provider == "deepseek") { return true; }
     return storage_provider_exists(provider);
 }
 
 fn ai_model_count(provider: str) -> i32 {
     // Accept legacy provider name
     if (provider == "openrouter-placeholder") { provider = "openrouter"; }
+    if (provider == "deepseek") { return 2; }
     // Static OpenRouter presets keep listing local and credit-free.
     if (provider == "openrouter") { return 4; }
+    let kind: str = std.lower(ai_provider_config_value(provider, "kind"));
+    if (kind == "openrouter") { return 4; }
     if (provider == "local") { return 2; }
     return 0;
 }
 
 fn ai_model_at(provider: str, index: i32) -> str {
     if (provider == "openrouter-placeholder") { provider = "openrouter"; }
+    if (provider == "deepseek") {
+        if (index == 0) { return "deepseek/deepseek-v4-pro"; }
+        if (index == 1) { return "deepseek/deepseek-v4-flash"; }
+        return "";
+    }
+    let kind: str = std.lower(ai_provider_config_value(provider, "kind"));
+    if (kind == "openrouter") { provider = "openrouter"; }
     if (provider == "openrouter") {
-        if (index == 0) { return "openrouter/deepseek/deepseek-chat"; }
-        if (index == 1) { return "openrouter/deepseek/deepseek-r1"; }
+        if (index == 0) { return "openrouter/deepseek/deepseek-v4-pro"; }
+        if (index == 1) { return "openrouter/deepseek/deepseek-v4-flash"; }
         if (index == 2) { return "openrouter/openai/gpt-4o-mini"; }
         if (index == 3) { return "openrouter/anthropic/claude-3.5-sonnet"; }
         return "";
@@ -167,6 +178,74 @@ fn provider_get_api_key(provider: str) -> str {
     return conn_line;
 }
 
+fn ai_provider_config_value(provider: str, field: str) -> str {
+    let cfg: str = storage_provider_get(provider);
+    let rest: str = cfg;
+    let prefix: str = field + "=";
+    while (std.len(std.trim(rest)) > 0) {
+        let line: str = std.trim(std.split_first(rest, "\n"));
+        rest = std.split_rest(rest, "\n");
+        if (std.starts_with(line, prefix)) { return std.trim(std.substr(line, std.len(prefix))); }
+    }
+    return "";
+}
+
+fn ai_provider_uses_openrouter(provider: str) -> bool {
+    if (provider == "openrouter" || provider == "openrouter-placeholder" || provider == "deepseek") { return true; }
+    let kind: str = std.lower(ai_provider_config_value(provider, "kind"));
+    if (kind == "openrouter") { return true; }
+    return false;
+}
+
+fn ai_openrouter_provider_body(provider: str) -> str {
+    let only: str = ai_provider_config_value(provider, "provider_only");
+    if (std.len(std.trim(only)) == 0 && provider == "deepseek") { only = "deepseek"; }
+    if (std.len(std.trim(only)) > 0) {
+        return ",\"provider\":{\"only\":[\"" + ai_json_escape(std.trim(only)) + "\"],\"allow_fallbacks\":false}";
+    }
+    return "";
+}
+
+fn ai_openrouter_max_tokens() -> i32 {
+    let raw: str = storage_env_get("CONDUCTOR_OPENROUTER_MAX_TOKENS");
+    if (std.len(std.trim(raw)) == 0) { raw = storage_process_env_get("CONDUCTOR_OPENROUTER_MAX_TOKENS"); }
+    if (std.len(std.trim(raw)) == 0) { return 2048; }
+    let n: i32 = std.to_i32(std.trim(raw));
+    if (n <= 0) { return 2048; }
+    if (n > 8192) { return 8192; }
+    return n;
+}
+
+fn ai_openrouter_reasoning_body(provider: str) -> str {
+    let effort: str = storage_env_get("CONDUCTOR_OPENROUTER_REASONING_EFFORT");
+    if (std.len(std.trim(effort)) == 0) { effort = storage_process_env_get("CONDUCTOR_OPENROUTER_REASONING_EFFORT"); }
+    if (std.len(std.trim(effort)) == 0) { effort = "minimal"; }
+    let include_raw: str = storage_env_get("CONDUCTOR_OPENROUTER_INCLUDE_REASONING");
+    let include_reasoning: bool = ai_truthy(include_raw);
+    let exclude: str = "true";
+    if (include_reasoning) { exclude = "false"; }
+    return ",\"reasoning\":{\"effort\":\"" + ai_json_escape(std.trim(effort)) + "\",\"exclude\":" + exclude + "}";
+}
+
+fn ai_shell_quote(value: str) -> str {
+    return "'" + std.replace(value, "'", "'\"'\"'") + "'";
+}
+
+fn ai_curl_config_escape(value: str) -> str {
+    let out: str = std.replace(value, "\\", "\\\\");
+    out = std.replace(out, "\"", "\\\"");
+    out = std.replace(out, "\r", "\\r");
+    out = std.replace(out, "\n", "\\n");
+    return out;
+}
+
+fn ai_shell_output_full(cmd: str, max_len: i32) -> str {
+    let sh: str = "/bin/sh";
+    let flag: str = "-c";
+    let av: []u64 = [ptr(sh), ptr(flag), ptr(cmd), 0];
+    return process.capture_output_full(sh, av, max_len);
+}
+
 fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
     if (std.len(std.trim(model)) == 0) { model = ai_model_at("openrouter", 0); }
     model = ai_openrouter_model_name(model);
@@ -195,42 +274,28 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
     }
 
     let url: str = "https://openrouter.ai/api/v1/chat/completions";
-
-    // Build payload. Escape double-quotes in the prompt for JSON
     let safe_input: str = ai_json_escape(prompt);
-    let payload: str = "{\"model\":\"" + model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"" + safe_input + "\"}],\"stream\":false}";
-
-    // Escape single quotes for safe shell single-quoting
-    let payload_escaped: str = std.replace(payload, "'", "'\"'\"'");
-
-    // Append a sentinel so the HTTP status code can be extracted reliably
-    let sentinel: str = ":::HTTP_CODE:::";
-    let cmd: str = "curl -sS -X POST " + url + " -H 'Authorization: Bearer " + key + "' -H 'Content-Type: application/json' -d '" + payload_escaped + "' -m 30 -w '\n" + sentinel + "%{http_code}'";
-    let out: str = process.shell_output(cmd, 65536);
-
-    // Parse curl output: body lines followed by a sentinel line with HTTP code
-    let rest: str = out;
+    let max_tokens: i32 = ai_openrouter_max_tokens();
+    let payload: str = "{\"model\":\"" + model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"" + safe_input + "\"}],\"stream\":false,\"max_tokens\":" + std.to_str(max_tokens) + ",\"temperature\":0.2" + ai_openrouter_reasoning_body(provider) + ai_openrouter_provider_body(provider) + "}";
+    let tmp_dir: str = file_io.path_join(storage_root(), "tmp");
+    file_io.mkdirp(tmp_dir);
+    let req_id: str = storage_new_session_id();
+    let payload_path: str = file_io.path_join(tmp_dir, req_id + ".json");
+    let config_path: str = file_io.path_join(tmp_dir, req_id + ".curl");
+    let body_path: str = file_io.path_join(tmp_dir, req_id + ".out");
+    file_io.write_file(payload_path, payload);
+    let config: str = "request = \"POST\"\nurl = \"" + ai_curl_config_escape(url) + "\"\nheader = \"Authorization: Bearer " + ai_curl_config_escape(key) + "\"\nheader = \"Content-Type: application/json\"\nheader = \"HTTP-Referer: https://github.com/MJDaws0n/Conductor\"\nheader = \"X-Title: Conductor\"\ndata = \"@" + ai_curl_config_escape(payload_path) + "\"\nmax-time = 45\nsilent\nshow-error\n";
+    file_io.write_file(config_path, config);
+    let cmd: str = "curl -K " + ai_shell_quote(config_path) + " -o " + ai_shell_quote(body_path) + " -w " + ai_shell_quote("%{http_code}");
+    let code_out: str = std.trim(ai_shell_output_full(cmd, 4096));
     let body: str = "";
-    let http_code: i32 = 0;
-    let found: bool = false;
-    while (std.len(std.trim(rest)) > 0) {
-        let line: str = std.split_first(rest, "\n");
-        rest = std.split_rest(rest, "\n");
-        if (std.starts_with(line, sentinel)) {
-            let code_str: str = std.trim(std.substr(line, std.len(sentinel)));
-            http_code = std.to_i32(code_str);
-            found = true;
-            break;
-        } else {
-            if (std.len(body) > 0) { body = body + "\n"; }
-            body = body + line;
-        }
-    }
+    if (file_io.file_exists(body_path)) { body = file_io.read_file(body_path); }
+    file_io.file_delete(config_path);
+    file_io.file_delete(payload_path);
+    if (file_io.file_exists(body_path)) { file_io.file_delete(body_path); }
 
-    if (!found) {
-        // Fallback: return raw curl output
-        return out;
-    }
+    let http_code: i32 = std.to_i32(code_out);
+    if (http_code == 0) { return "Error: OpenRouter request failed before HTTP response: " + body; }
     if (http_code >= 200 && http_code < 300) {
         return ai_openrouter_extract_content(body);
     }
@@ -238,40 +303,68 @@ fn ai_openrouter_request(prompt: str, model: str, provider: str) -> str {
 }
 
 fn ai_openrouter_extract_content(body: str) -> str {
+    let finish_reason: str = ai_json_extract_string_field(body, "finish_reason");
     let marker: str = "\"content\"";
     let pos: i32 = std.find(body, marker);
     if (pos < 0) { return body; }
     let after: str = std.substr(body, pos + std.len(marker));
     let value: str = std.trim(std.split_rest(after, ":"));
-    if (!std.starts_with(value, "\"")) { return body; }
-    let inner: str = std.substr(value, 1);
-    let end_pos: i32 = std.find(inner, "\"");
-    if (end_pos < 0) { return body; }
-    return ai_json_unescape(std.substr_len(inner, 0, end_pos));
+    if (!std.starts_with(value, "\"")) {
+        if (std.starts_with(value, "null")) {
+            return "Error: OpenRouter returned no assistant content (finish_reason=" + finish_reason + "). Increase CONDUCTOR_OPENROUTER_MAX_TOKENS or lower CONDUCTOR_OPENROUTER_REASONING_EFFORT.";
+        }
+        return body;
+    }
+    let raw: str = "";
+    let escaped: bool = false;
+    let i: i32 = 1;
+    while (i < std.len(value)) {
+        if (escaped) {
+            raw = raw + "\\" + value[i];
+            escaped = false;
+        } else if (value[i] == '\\') {
+            escaped = true;
+        } else if (value[i] == '"') {
+            return std.trim(ai_json_unescape(raw));
+        } else {
+            raw = raw + value[i];
+        }
+        i = i + 1;
+    }
+    return body;
+}
+
+fn ai_json_extract_string_field(body: str, field: str) -> str {
+    let marker: str = "\"" + field + "\"";
+    let pos: i32 = std.find(body, marker);
+    if (pos < 0) { return ""; }
+    let after: str = std.substr(body, pos + std.len(marker));
+    let value: str = std.trim(std.split_rest(after, ":"));
+    if (!std.starts_with(value, "\"")) { return ""; }
+    let raw: str = "";
+    let escaped: bool = false;
+    let i: i32 = 1;
+    while (i < std.len(value)) {
+        if (escaped) {
+            raw = raw + "\\" + value[i];
+            escaped = false;
+        } else if (value[i] == '\\') {
+            escaped = true;
+        } else if (value[i] == '"') {
+            return ai_json_unescape(raw);
+        } else {
+            raw = raw + value[i];
+        }
+        i = i + 1;
+    }
+    return "";
 }
 
 fn ai_run(prompt: str, model: str, provider: str) -> str {
     if (std.len(std.trim(provider)) == 0) { provider = ai_default_provider(); }
-    // If provider name directly maps to openrouter or the provider file indicates kind=openrouter, use openrouter transport
-    let use_openrouter: bool = false;
-    if (provider == "openrouter" || provider == "openrouter-placeholder") { use_openrouter = true; }
-    else {
-        let cfg: str = storage_provider_get(provider);
-        if (std.len(std.trim(cfg)) > 0) {
-            // parse lines for kind=
-            let rest: str = cfg;
-            while (std.len(std.trim(rest)) > 0) {
-                let line: str = std.split_first(rest, "\n");
-                rest = std.split_rest(rest, "\n");
-                if (std.starts_with(std.trim(line), "kind=")) {
-                    let k: str = std.trim(std.substr(line, 5));
-                    if (std.lower(k) == "openrouter") { use_openrouter = true; break; }
-                }
-            }
-        }
-    }
-    if (use_openrouter) {
-        if (std.len(std.trim(model)) == 0) { model = ai_model_at("openrouter", 0); }
+    if (ai_provider_uses_openrouter(provider)) {
+        if (std.len(std.trim(model)) == 0) { model = ai_model_at(provider, 0); }
+        if (std.len(std.trim(model)) == 0) { model = ai_model_at("deepseek", 0); }
         return ai_openrouter_request(prompt, model, provider);
     }
     return ai_placeholder_response(prompt, model, "");
@@ -283,29 +376,12 @@ fn ai_placeholder_response(prompt: str, model: str, agent: str) -> str {
 
 fn ai_print_models(provider: str, verbose: bool) -> i32 {
     if (std.len(std.trim(provider)) == 0) { provider = ai_default_provider(); }
-    // Determine provider kind similar to ai_run
-    let is_openrouter: bool = false;
-    if (provider == "openrouter" || provider == "openrouter-placeholder") { is_openrouter = true; }
-    else {
-        let cfg: str = storage_provider_get(provider);
-        if (std.len(std.trim(cfg)) > 0) {
-            let rest: str = cfg;
-            while (std.len(std.trim(rest)) > 0) {
-                let line: str = std.split_first(rest, "\n");
-                rest = std.split_rest(rest, "\n");
-                if (std.starts_with(std.trim(line), "kind=")) {
-                    let k: str = std.trim(std.substr(line, 5));
-                    if (std.lower(k) == "openrouter") { is_openrouter = true; break; }
-                }
-            }
-        }
-    }
-    if (is_openrouter) {
-        let count: i32 = ai_model_count("openrouter");
+    if (ai_provider_uses_openrouter(provider)) {
+        let count: i32 = ai_model_count(provider);
         if (count == 0) { return 1; }
         let i: i32 = 0;
         while (i < count) {
-            std.print(std.to_str(i) + ". " + ai_model_at("openrouter", i));
+            std.print(std.to_str(i) + ". " + ai_model_at(provider, i));
             i = i + 1;
         }
         return 0;
