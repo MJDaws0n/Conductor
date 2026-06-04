@@ -46,6 +46,41 @@ test -f "$build_project/app.py"
 test -f "$build_project/README.md"
 app_check="$(python3 "$build_project/app.py" --self-test)"
 grep -q "SELF_TEST_OK" <<<"$app_check"
+todo_project="$(mktemp -d)"
+out="$("$bin" run "Work in $todo_project please folder. Build a Python command-line application that lets users manage a personal to-do list. The app should be split into logical modules." --home "$(mktemp -d)")"
+grep -q "## Orchestrator" <<<"$out"
+grep -q "## Code Designer" <<<"$out"
+grep -q "Wrote $todo_project/main.py" <<<"$out"
+test -f "$todo_project/main.py"
+test -f "$todo_project/tasks.py"
+test -f "$todo_project/storage.py"
+test -f "$todo_project/cli.py"
+test -f "$todo_project/README.md"
+todo_check="$(python3 "$todo_project/main.py" --self-test)"
+grep -q "SELF_TEST_OK" <<<"$todo_check"
+todo_chat_project="$(mktemp -d)"
+out="$(printf '%s\n' \
+  "Work in $todo_chat_project please folder. Build a Python command-line application that lets users manage a personal to-do list. The app should be split into logical modules:" \
+  "" \
+  "- main.py: entry point that parses commands and delegates work." \
+  "" \
+  "- tasks.py: defines a Task class and functions to add, list, edit, and delete tasks." \
+  "" \
+  "- storage.py: handles saving and loading tasks from a local sqlite database (tasks(id, title, description, due_date, completed))." \
+  "" \
+  "- cli.py: contains helper functions for prompting users and displaying task lists." \
+  "" \
+  "- README.md: provides install/run instructions and a description of each module." \
+  "" \
+  "Users should be able to add tasks with titles, descriptions, and optional due dates; list upcoming and completed tasks; mark tasks as completed; edit or delete tasks; and exit the program. Store data persistently via sqlite so the tasks are available on the next run." \
+  "/exit" | "$bin" chat --home "$(mktemp -d)")"
+grep -q "Wrote $todo_chat_project/main.py" <<<"$out"
+if grep -q "You: - main.py" <<<"$out"; then
+  echo "chat paste continuation was treated as a separate prompt" >&2
+  exit 1
+fi
+todo_chat_check="$(python3 "$todo_chat_project/main.py" --self-test)"
+grep -q "SELF_TEST_OK" <<<"$todo_chat_check"
 out="$("$bin" orchestrate "write a test" --home "$home")"
 grep -q "## Orchestrator" <<<"$out"
 grep -q "## Code Designer" <<<"$out"

@@ -636,6 +636,31 @@ fn looks_like_login_signup_build(message: str) -> bool {
     return true;
 }
 
+fn looks_like_todo_build(message: str) -> bool {
+    let m: str = std.lower(message);
+    if (!std.contains(m, "python")) { return false; }
+    if (!(std.contains(m, "todo") || std.contains(m, "to-do") || std.contains(m, "do list") || std.contains(m, "task"))) { return false; }
+    if (!(std.contains(m, "build") || std.contains(m, "create") || std.contains(m, "make"))) { return false; }
+    return true;
+}
+
+fn looks_like_paste_continuation(line: str) -> bool {
+    let l: str = std.lower(std.trim(line));
+    if (std.len(l) == 0) { return true; }
+    if (std.starts_with(l, "-")) { return true; }
+    if (std.starts_with(l, "*")) { return true; }
+    if (std.contains(l, ".py:")) { return true; }
+    if (std.contains(l, "readme.md:")) { return true; }
+    if (std.starts_with(l, "users should")) { return true; }
+    if (std.starts_with(l, "store data")) { return true; }
+    if (std.starts_with(l, "the app should")) { return true; }
+    if (std.starts_with(l, "it should")) { return true; }
+    if (std.starts_with(l, "admin accounts")) { return true; }
+    if (std.starts_with(l, "passwords should")) { return true; }
+    if (std.starts_with(l, "and ")) { return true; }
+    return false;
+}
+
 fn role_turn_record(session_id: str, role: str, task: str, output: str) -> void {
     storage_record_event(session_id, "role_input", role, task);
     storage_record_event(session_id, "role_output", role, output);
@@ -724,6 +749,94 @@ fn run_orchestrated_login_signup_build(message: str, model: str, provider: str, 
     return transcript;
 }
 
+fn run_orchestrated_todo_build(message: str, model: str, provider: str, session_id: str) -> str {
+    let target_dir: str = target_dir_from_message(message);
+    let main_path: str = file_io.path_join(target_dir, "main.py");
+    let tasks_path: str = file_io.path_join(target_dir, "tasks.py");
+    let storage_path: str = file_io.path_join(target_dir, "storage.py");
+    let cli_path: str = file_io.path_join(target_dir, "cli.py");
+    let readme_path: str = file_io.path_join(target_dir, "README.md");
+    let main_template: str = template_path("todo_main.py");
+    let tasks_template: str = template_path("todo_tasks.py");
+    let storage_template: str = template_path("todo_storage.py");
+    let cli_template: str = template_path("todo_cli.py");
+    let readme_template: str = template_path("todo_README.md");
+    let transcript: str = "";
+
+    let orchestrator_task: str = "Plan role handoffs for the original prompt without splitting pasted bullet lines into separate user turns.\n\nOriginal prompt:\n" + message;
+    let orchestrator_out: str = "Target folder: " + target_dir + "\n"
+        + "Routing: Orchestrator -> Code Designer -> Coder -> Reviewer.\n"
+        + "Control policy: Orchestrator owns dispatch and completion; each specialist writes to separate role context.\n"
+        + "Execution policy: generate the requested multi-module SQLite to-do CLI with local file writes and a self-test.";
+    role_turn_record(session_id, "orchestrator", orchestrator_task, orchestrator_out);
+    print_role_section(role_display_name("orchestrator"), orchestrator_out);
+    transcript = transcript + "Orchestrator:\n" + orchestrator_out + "\n\n";
+
+    let design_task: str = "Design the Python to-do CLI for " + target_dir + ". Include files, data model, commands, and checks.";
+    orchestrator_handoff(session_id, "code_designer", design_task);
+    let design_out: str = "Files:\n"
+        + "- " + main_path + ": argparse entry point plus interactive prompt and --self-test.\n"
+        + "- " + tasks_path + ": Task class and task operations.\n"
+        + "- " + storage_path + ": sqlite persistence for tasks(id, title, description, due_date, completed).\n"
+        + "- " + cli_path + ": prompt and task table display helpers.\n"
+        + "- " + readme_path + ": run instructions and module descriptions.\n"
+        + "Commands: add, list --upcoming, list --completed, complete, edit, delete, interactive, exit.\n"
+        + "Acceptance checks: all files exist; python3 main.py --self-test prints SELF_TEST_OK.";
+    storage_record_event(session_id, "role_output", "code_designer", design_out);
+    storage_role_append(session_id, "code_designer", "output", design_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("code_designer"), design_out);
+    transcript = transcript + "Code Designer:\n" + design_out + "\n\n";
+
+    let coder_task: str = "Implement the designed to-do files in " + target_dir + " using local file writes.";
+    orchestrator_handoff(session_id, "coder", coder_task);
+    let coder_out: str = "";
+    file_io.mkdirp(target_dir);
+    if (!file_io.file_exists(main_template) || !file_io.file_exists(tasks_template) || !file_io.file_exists(storage_template) || !file_io.file_exists(cli_template) || !file_io.file_exists(readme_template)) {
+        coder_out = "Cannot write to-do app because one or more templates are missing.";
+    } else {
+        file_io.file_copy(main_template, main_path);
+        file_io.file_copy(tasks_template, tasks_path);
+        file_io.file_copy(storage_template, storage_path);
+        file_io.file_copy(cli_template, cli_path);
+        file_io.file_copy(readme_template, readme_path);
+        coder_out = "Wrote " + main_path + "\n"
+            + "Wrote " + tasks_path + "\n"
+            + "Wrote " + storage_path + "\n"
+            + "Wrote " + cli_path + "\n"
+            + "Wrote " + readme_path + "\n"
+            + "Handled as a role build, so pasted spec lines are not sent to the model one-by-one.";
+    }
+    storage_record_event(session_id, "role_output", "coder", coder_out);
+    storage_role_append(session_id, "coder", "output", coder_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("coder"), coder_out);
+    transcript = transcript + "Coder:\n" + coder_out + "\n\n";
+
+    let review_task: str = "Verify the generated to-do CLI in " + target_dir + ".";
+    orchestrator_handoff(session_id, "reviewer", review_task);
+    let test_output: str = "";
+    let review_out: str = "";
+    if (file_io.file_exists(main_path)) {
+        test_output = std.trim(process.shell_output("python3 " + shell_quote(main_path) + " --self-test 2>&1", 65536));
+        if (std.contains(test_output, "SELF_TEST_OK")) {
+            review_out = "PASS python3 " + main_path + " --self-test\n" + test_output;
+        } else {
+            review_out = "FAIL python3 " + main_path + " --self-test\n" + test_output;
+        }
+    } else {
+        review_out = "FAIL " + main_path + " was not written.";
+    }
+    storage_record_event(session_id, "role_output", "reviewer", review_out);
+    storage_role_append(session_id, "reviewer", "output", review_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("reviewer"), review_out);
+    transcript = transcript + "Reviewer:\n" + review_out + "\n\n";
+
+    storage_record_event(session_id, "chat_end", "orchestrator", "to-do build flow complete for " + target_dir);
+    return transcript;
+}
+
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
     let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
@@ -754,6 +867,14 @@ fn command_run(argc: i32, argv: u64) -> i32 {
     std.print("");
     if (looks_like_login_signup_build(message)) {
         response = run_orchestrated_login_signup_build(message, model, provider, id);
+        storage_append_message(id, "assistant", response);
+        storage_increment_runs();
+        std.print("");
+        ui_kv("session", id);
+        return 0;
+    }
+    if (looks_like_todo_build(message)) {
+        response = run_orchestrated_todo_build(message, model, provider, id);
         storage_append_message(id, "assistant", response);
         storage_increment_runs();
         std.print("");
@@ -1501,7 +1622,7 @@ fn command_tool(argc: i32, argv: u64) -> i32 {
     return 1;
 }
 
-fn shell_run_message(message: str) -> void {
+fn shell_run_message(message: str) -> i32 {
     let model: str = storage_get_active_model();
     let agent: str = storage_get_active_agent();
     std.print("You: " + message);
@@ -1522,7 +1643,23 @@ fn shell_run_message(message: str) -> void {
         storage_append_message(id, "assistant", response);
         storage_increment_runs();
         std.print("session " + id);
-        return;
+        return 1;
+    }
+    if (looks_like_todo_build(message)) {
+        let id: str = storage_get_active_session();
+        if (std.len(std.trim(id)) == 0) {
+            let title: str = message;
+            if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
+            id = storage_create_session(title);
+        }
+        storage_record_event(id, "original_prompt", "user", message);
+        storage_append_message(id, "user", message);
+        std.print("Conductor:");
+        response = run_orchestrated_todo_build(message, model, provider, id);
+        storage_append_message(id, "assistant", response);
+        storage_increment_runs();
+        std.print("session " + id);
+        return 1;
     }
     let model_prompt: str = build_agent_prompt(message, agent);
     std.print("Conductor:");
@@ -1538,9 +1675,34 @@ fn shell_run_message(message: str) -> void {
     if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
     let id: str = storage_record_session(title, message, response);
     std.print("session " + id);
+    return 0;
+}
+
+fn execute_response_tool(toolName: str, targs: str) -> void {
+    if (std.len(toolName) > 0) {
+        std.print("Executing tool: " + toolName + " " + targs);
+        let out: str = ai_execute_tool(toolName, targs);
+        std.print("Tool output: " + out);
+        let sid: str = storage_get_active_session();
+        if (std.len(std.trim(sid)) > 0) { storage_append_message(sid, "tool", out); }
+    }
+}
+
+fn process_bash_blocks_from_response(response: str) -> void {
+    let rest: str = response;
+    while (std.contains(rest, "<bash>")) {
+        let before: str = std.split_rest(rest, "<bash>");
+        if (!std.contains(before, "</bash>")) { return; }
+        let cmd: str = std.trim(std.split_first(before, "</bash>"));
+        if (std.len(cmd) > 0) {
+            execute_response_tool("bash", cmd);
+        }
+        rest = std.split_rest(before, "</bash>");
+    }
 }
 
 fn process_tool_commands_from_response(response: str) -> void {
+    process_bash_blocks_from_response(response);
     let rest: str = response;
     while (std.len(std.trim(rest)) > 0) {
         let line: str = std.split_first(rest, "\n");
@@ -1551,11 +1713,7 @@ fn process_tool_commands_from_response(response: str) -> void {
             let toolName: str = std.split_first(after, " ");
             let targs: str = std.split_rest(after, " ");
             if (std.len(toolName) > 0) {
-                std.print("Executing tool: " + toolName + " " + targs);
-                let out: str = ai_execute_tool(toolName, targs);
-                std.print("Tool output: " + out);
-                let sid: str = storage_get_active_session();
-                if (std.len(std.trim(sid)) > 0) { storage_append_message(sid, "tool", out); }
+                execute_response_tool(toolName, targs);
             }
         }
     }
@@ -1763,8 +1921,21 @@ fn command_chat() -> i32 {
     ui_kv("session", sid);
     let running: bool = true;
     let empty_reads: i32 = 0;
+    let paste_drain: i32 = 0;
     while (running) {
         let line: str = std.trim(std.input("conductor> ", 4096));
+        if (paste_drain > 0 && looks_like_paste_continuation(line)) {
+            if (std.len(std.trim(line)) > 0) {
+                storage_record_event(sid, "paste_continuation", "user", line);
+                storage_append_message(sid, "user-continuation", line);
+            }
+            paste_drain = paste_drain - 1;
+            empty_reads = 0;
+            continue;
+        }
+        if (paste_drain > 0 && std.len(std.trim(line)) > 0) {
+            paste_drain = 0;
+        }
         if (std.len(line) == 0) {
             empty_reads = empty_reads + 1;
             if (empty_reads >= 3) {
@@ -1776,7 +1947,8 @@ fn command_chat() -> i32 {
             running = shell_handle_command(line);
         } else {
             empty_reads = 0;
-            shell_run_message(line);
+            let handled_build: i32 = shell_run_message(line);
+            if (handled_build == 1) { paste_drain = 32; }
         }
     }
     return 0;

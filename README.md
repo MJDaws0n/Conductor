@@ -163,7 +163,9 @@ conductor mcp serve-conductor
 
 `conductor mcp serve-conductor` runs a Novus stdio MCP server from the Conductor binary. Its tools expose session state, role dispatch, user questions, chat end, compaction, decision logging, and skill activation.
 
-For build requests that match the terminal login/signup app workflow, `run` and interactive chat route through an orchestrated role flow: Orchestrator, Code Designer, Coder, and Reviewer. That path writes the generated files locally, records separate role context, and runs `python3 app.py --self-test` instead of streaming a full source file into the terminal.
+For build requests that match known app workflows, `run` and interactive chat route through an orchestrated role flow: Orchestrator, Code Designer, Coder, and Reviewer. That path writes generated files locally, records separate role context, and runs a self-test instead of streaming full source files into the terminal. Current deterministic workflows cover the login/signup terminal app and the SQLite-backed Python to-do CLI.
+
+When a deterministic build request is pasted into chat as multiple lines, Conductor handles the first build line and then drains obvious pasted continuation lines such as `- main.py:` and `Users should...` so they are not sent as separate model prompts.
 
 `mcp add` and `mcp import-codex` support stdio MCP servers plus URL-based `streamable-http` or `sse` entries. For Codex config imports, Conductor reads `command`, `args`, `[mcp_servers.NAME.env]`, `url`, and `transport`.
 
