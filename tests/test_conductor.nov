@@ -55,8 +55,10 @@ fn main() -> i32 {
     failures = failures + assert_true(std.len(std.trim(sid1)) > 0, "session created on startup");
     let active: str = storage_get_active_session();
     failures = failures + assert_true(active == sid1, "active session set after create");
+    failures = failures + assert_true(storage_session_exists(sid1), "session exists");
     let rec: str = storage_record_session("title", "hello", "world");
     failures = failures + assert_true(rec == sid1, "recording uses active session");
+    failures = failures + assert_true(storage_session_message_count(sid1) == 2, "session message count");
     // create an empty session and then restore first session
     let sid2: str = storage_create_session("empty-session");
     failures = failures + assert_true(std.len(std.trim(sid2)) > 0, "empty session created");

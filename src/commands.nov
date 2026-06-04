@@ -1474,7 +1474,7 @@ fn command_session(argc: i32, argv: u64) -> i32 {
             if (argc >= 4) { id = arg_at(argv, 3); }
             if (std.len(std.trim(id)) == 0) { ui_error("Usage: conductor session resume <sessionID>"); return 1; }
             let rc: i32 = storage_set_active_session(id);
-            if (rc == 0) { ui_ok("Active session: " + id); return 0; }
+            if (rc == 0) { return command_chat_loop(id, true); }
             ui_error("Session not found: " + id);
             return 1;
         }
@@ -1917,8 +1917,15 @@ fn command_chat() -> i32 {
     // Create a new session for this Conductor process
     let session_title: str = "interactive " + std.to_str(time.get_time_ms());
     let sid: str = storage_create_session(session_title);
+    return command_chat_loop(sid, false);
+}
+
+fn command_chat_loop(sid: str, show_history: bool) -> i32 {
     ui_shell_banner(storage_get_active_agent(), storage_get_active_model());
     ui_kv("session", sid);
+    if (show_history) {
+        storage_print_session_history(sid, 20);
+    }
     let running: bool = true;
     let empty_reads: i32 = 0;
     let paste_drain: i32 = 0;
@@ -1961,7 +1968,7 @@ fn command_resume(argc: i32, argv: u64) -> i32 {
     if (std.len(std.trim(id)) == 0) { id = storage_last_session(); }
     if (std.len(std.trim(id)) == 0) { ui_error("No session to resume."); return 1; }
     let rc: i32 = storage_set_active_session(id);
-    if (rc == 0) { ui_ok("Resumed session: " + id); return 0; }
+    if (rc == 0) { return command_chat_loop(id, true); }
     ui_error("Session not found: " + id);
     return rc;
 }

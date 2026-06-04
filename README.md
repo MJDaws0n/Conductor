@@ -88,6 +88,7 @@ conductor providers use myopen
 ```text
 conductor run [message..]
 conductor chat
+conductor resume [sessionID]
 conductor orchestrate [task..]
 conductor models [provider] [--verbose]
 conductor providers
@@ -136,6 +137,8 @@ reviewer
 ```
 
 Local state is stored in `.conductor/` by default. Add `--home /path/to/data` to use another data directory.
+
+Use `conductor resume <sessionID>` to reopen an existing session with recent chat history and continue at the `conductor>` prompt.
 
 ## Skills, MCP, And Roles
 

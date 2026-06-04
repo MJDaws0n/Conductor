@@ -353,6 +353,12 @@ fn storage_set_active_session(id: str) -> i32 {
     return 0;
 }
 
+fn storage_session_exists(id: str) -> bool {
+    storage_init();
+    let path: str = file_io.path_join(storage_sessions_dir(), id + ".txt");
+    return file_io.file_exists(path);
+}
+
 fn storage_create_session(title: str) -> str {
     storage_init();
     let id: str = storage_new_session_id();
@@ -375,6 +381,83 @@ fn storage_append_message(session_id: str, role: str, content: str) -> void {
     if (!file_io.file_exists(path)) { return; }
     let t: i64 = time.get_time_ms();
     file_io.file_append(path, "===MSG_START===\nrole=" + role + "\ntimestamp=" + std.to_str(t) + "\ncontent=\n" + content + "\n===MSG_END===\n");
+}
+
+fn storage_message_role(block: str) -> str {
+    return storage_field_value(block, "role");
+}
+
+fn storage_message_content(block: str) -> str {
+    let marker: str = "content=\n";
+    let pos: i32 = std.find(block, marker);
+    if (pos < 0) { return ""; }
+    return std.trim(std.substr(block, pos + std.len(marker)));
+}
+
+fn storage_message_display_role(role: str) -> str {
+    if (role == "user") { return "You"; }
+    if (role == "assistant") { return "Conductor"; }
+    if (role == "tool") { return "Tool"; }
+    if (role == "user-continuation") { return "You"; }
+    return role;
+}
+
+fn storage_session_message_count(id: str) -> i32 {
+    storage_init();
+    let path: str = file_io.path_join(storage_sessions_dir(), id + ".txt");
+    if (!file_io.file_exists(path)) { return 0; }
+    let content: str = file_io.read_file(path);
+    let rest: str = content;
+    let count: i32 = 0;
+    while (std.contains(rest, "===MSG_START===")) {
+        let after: str = std.split_rest(rest, "===MSG_START===");
+        if (!std.contains(after, "===MSG_END===")) { return count; }
+        count = count + 1;
+        rest = std.split_rest(after, "===MSG_END===");
+    }
+    return count;
+}
+
+fn storage_print_session_history(id: str, max_messages: i32) -> i32 {
+    storage_init();
+    let path: str = file_io.path_join(storage_sessions_dir(), id + ".txt");
+    if (!file_io.file_exists(path)) { return 1; }
+    let content: str = file_io.read_file(path);
+    let total: i32 = storage_session_message_count(id);
+    let start_at: i32 = 0;
+    if (max_messages > 0 && total > max_messages) { start_at = total - max_messages; }
+    let rest: str = content;
+    let idx: i32 = 0;
+    let printed: i32 = 0;
+    if (total > 0) {
+        std.print("");
+        if (start_at > 0) {
+            std.print("Recent history (last " + std.to_str(max_messages) + " messages)");
+        } else {
+            std.print("Chat history");
+        }
+        std.print("------------");
+    }
+    while (std.contains(rest, "===MSG_START===")) {
+        let after: str = std.split_rest(rest, "===MSG_START===");
+        if (!std.contains(after, "===MSG_END===")) { return 0; }
+        let block: str = std.split_first(after, "===MSG_END===");
+        rest = std.split_rest(after, "===MSG_END===");
+        if (idx >= start_at) {
+            let role: str = storage_message_display_role(storage_message_role(block));
+            let body: str = storage_message_content(block);
+            if (std.len(std.trim(body)) > 0) {
+                std.print(role + ": " + body);
+                printed = printed + 1;
+            }
+        }
+        idx = idx + 1;
+    }
+    if (printed == 0) {
+        std.print("");
+        std.print("No chat history yet.");
+    }
+    return 0;
 }
 
 fn storage_last_session() -> str {
