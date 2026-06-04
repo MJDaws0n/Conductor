@@ -40,6 +40,7 @@ fn main() -> i32 {
     let agent_name: str = storage_new_session_id();
     failures = failures + assert_true(storage_create_agent(agent_name, "test desc", "all", "read") == 0, "agent create");
     failures = failures + assert_true(storage_set_active_agent(agent_name) == 0, "agent use");
+    failures = failures + assert_true(std.contains(storage_agent_prompt("conductor-agent"), "agent wrapper"), "default agent prompt separates wrapper");
     failures = failures + assert_true(storage_agent_exists("orchestrator"), "orchestrator seeded");
     failures = failures + assert_true(storage_agent_exists("designer"), "designer seeded");
     failures = failures + assert_true(storage_agent_exists("code_designer"), "code designer seeded");

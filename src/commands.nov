@@ -517,6 +517,15 @@ fn build_agent_prompt(message: str, agent: str) -> str {
     if (std.len(std.trim(context)) > 0) {
         prompt = prompt + "Project context:\n" + context + "\n";
     }
+    let cwd: str = std.trim(process.shell_output("pwd", 4096));
+    let target_dir: str = target_dir_from_message(message);
+    prompt = prompt + "Runtime boundary:\n";
+    prompt = prompt + "- Conductor is the AI coding-agent wrapper and shell, not the application or repository being built.\n";
+    prompt = prompt + "- The target application/workspace is the folder, repo, or module named by the user. If the user names an absolute path, treat that as the target workspace.\n";
+    prompt = prompt + "- Current Conductor process directory: " + cwd + "\n";
+    prompt = prompt + "- Inferred target workspace for this request: " + target_dir + "\n";
+    prompt = prompt + "- Do not document Conductor, inspect Conductor internals, or ask what project this is when the user already gave an app spec, module list, README task, or target folder.\n";
+    prompt = prompt + "- If the target workspace is empty but the user supplied a concrete app/module spec, create or update the requested target files from that spec instead of asking for clarification.\n\n";
     prompt = prompt + "User request:\n" + message;
     return prompt;
 }

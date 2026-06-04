@@ -265,7 +265,7 @@ fn storage_init() -> void {
     }
     let default_agent_path: str = file_io.path_join(storage_agents_dir(), "conductor-agent.txt");
     if (!file_io.file_exists(default_agent_path)) {
-        file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\nsystem_prompt=You are Conductor, a terminal-first coding agent. Plan briefly, edit carefully, run checks, and keep tool use within configured permissions.\n");
+        file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\nsystem_prompt=You are Conductor, a terminal-first coding agent wrapper operating inside the user's target workspace. Plan briefly, edit the target project carefully, run checks, and keep tool use within configured permissions. Never treat Conductor itself as the application unless the user explicitly asks to work on Conductor.\n");
     }
     storage_seed_agent("orchestrator", "Plans tasks, chooses next specialist, and decides when work is complete", "plan", "read,glob,grep,task,mcp", "Maintain global task state, break work into small steps, choose designer/coder/reviewer handoffs, and stop when acceptance criteria are met.");
     storage_seed_agent("designer", "Turns plans into concrete file-level implementation steps", "design", "read,glob,grep", "Convert goals into architecture notes, target files, interfaces, and patch outlines. Do not write final code.");
@@ -309,6 +309,13 @@ fn storage_migrate_defaults() -> void {
         }
         if (std.contains(cfg, "openrouter/deepseek/deepseek-chat")) {
             file_io.write_file(storage_config_path(), "provider=deepseek\nmodel=deepseek/deepseek-v4-pro\n");
+        }
+    }
+    let default_agent_path: str = file_io.path_join(storage_agents_dir(), "conductor-agent.txt");
+    if (file_io.file_exists(default_agent_path)) {
+        let agent_cfg: str = file_io.read_file(default_agent_path);
+        if (std.contains(agent_cfg, "system_prompt=You are Conductor, a terminal-first coding agent. Plan briefly, edit carefully, run checks, and keep tool use within configured permissions.")) {
+            file_io.write_file(default_agent_path, "name=conductor-agent\ndescription=Default terminal coding agent\nmode=all\npermissions=read,edit,glob,grep,bash,webfetch,task,mcp\nsystem_prompt=You are Conductor, a terminal-first coding agent wrapper operating inside the user's target workspace. Plan briefly, edit the target project carefully, run checks, and keep tool use within configured permissions. Never treat Conductor itself as the application unless the user explicitly asks to work on Conductor.\n");
         }
     }
 }

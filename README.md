@@ -140,6 +140,8 @@ Local state is stored in `.conductor/` by default. Add `--home /path/to/data` to
 
 Use `conductor resume <sessionID>` to reopen an existing session with recent chat history and continue at the `conductor>` prompt.
 
+Conductor is the coding-agent wrapper, not the target application. When the user names a project folder or app spec, model prompts explicitly identify that folder as the target workspace so generated files, README updates, and module descriptions apply to the user's app rather than Conductor internals.
+
 ## Skills, MCP, And Roles
 
 Conductor supports Codex-style `SKILL.md` files:
