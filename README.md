@@ -136,7 +136,7 @@ conductor skill context
 
 Enabled skills are injected into role prompts. The skill registry and prompt assembly live in Novus.
 
-External MCP server communication uses a tiny Python stdio transport bridge because the current Novus process library does not expose long-lived bidirectional pipes. Conductor-owned MCP behavior, tool schema, policy checks, and agent dispatch stay in Novus:
+MCP wire communication uses tiny Python stdio communicators because the current Novus process library does not expose long-lived bidirectional pipes. Conductor-owned MCP behavior, tool schema, policy checks, and agent dispatch stay in Novus:
 
 ```sh
 conductor mcp add --name fake --command "python3 scripts/fake_mcp_server.py"
@@ -145,7 +145,7 @@ conductor mcp call fake echo '{"msg":"hi"}'
 conductor mcp serve-conductor
 ```
 
-`conductor mcp serve-conductor` declares the Conductor control server for the communicator. The communicator detects it and invokes Novus entrypoints in the Conductor binary; no Conductor control policy lives in Python. Its tools expose session state, role dispatch, user questions, chat end, compaction, decision logging, and skill activation.
+`conductor mcp serve-conductor` launches a stdio MCP communicator that delegates each tool list/call to Novus entrypoints in the Conductor binary; no Conductor control policy lives in Python. Its tools expose session state, role dispatch, user questions, chat end, compaction, decision logging, and skill activation.
 
 Role controls are policy gated:
 

@@ -38,25 +38,6 @@ def read_server(home: Path, name: str) -> dict[str, str]:
     return data
 
 
-def conductor_command(command: str, subcommand: str, *extra: str) -> list[str]:
-    parts = shlex.split(command)
-    try:
-        idx = parts.index("serve-conductor")
-    except ValueError as exc:
-        raise RuntimeError("not a conductor server command") from exc
-    return parts[:idx] + [subcommand, *extra] + parts[idx + 1 :]
-
-
-def is_conductor_server(command: str) -> bool:
-    return "serve-conductor" in shlex.split(command)
-
-
-def run_conductor_json(command: str, subcommand: str, *extra: str) -> object:
-    cmd = conductor_command(command, subcommand, *extra)
-    out = subprocess.check_output(cmd, text=True)
-    return json.loads(out)
-
-
 class McpClient:
     def __init__(self, command: str, timeout_seconds: float) -> None:
         self.timeout_seconds = timeout_seconds
@@ -147,18 +128,6 @@ def main() -> int:
         command = cfg.get("command", "")
         if not command:
             return fail(f"server has no command: {args.server}")
-        if is_conductor_server(command):
-            if args.action == "tools":
-                ok(run_conductor_json(command, "conductor-tools-json"))
-            elif args.action == "resources":
-                ok(run_conductor_json(command, "conductor-resources-json"))
-            elif args.action == "prompts":
-                ok(run_conductor_json(command, "conductor-prompts-json"))
-            elif args.action == "call":
-                ok(run_conductor_json(command, "conductor-call-json", args.tool, args.args))
-            else:
-                return fail(f"unknown action: {args.action}")
-            return 0
         client = McpClient(command, args.timeout)
         try:
             client.initialize()

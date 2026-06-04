@@ -777,8 +777,8 @@ fn command_mcp(argc: i32, argv: u64) -> i32 {
         return 0;
     }
     if (sub == "serve-conductor") {
-        std.print("{\"conductorMcp\":\"novus\",\"tools\":\"conductor-tools-json\",\"call\":\"conductor-call-json\"}");
-        return 0;
+        let cmd: str = "python3 " + shell_quote(script_path("conductor_mcp_communicator.py")) + " --conductor " + shell_quote(arg_at(argv, 0)) + " --home " + shell_quote(storage_root());
+        return process.shell_exec(cmd);
     }
     if (sub == "tools" || sub == "resources" || sub == "prompts") {
         if (argc < 4) { ui_error("Usage: conductor mcp " + sub + " <name>"); return 1; }
