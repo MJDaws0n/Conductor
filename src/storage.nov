@@ -632,6 +632,7 @@ fn storage_import(path: str) -> i32 {
 
 fn storage_permission_default(tool: str) -> str {
     if (tool == "read") { return "allow"; }
+    if (tool == "list_files") { return "allow"; }
     if (tool == "glob") { return "allow"; }
     if (tool == "grep") { return "allow"; }
     if (tool == "webfetch") { return "allow"; }
@@ -644,19 +645,20 @@ fn storage_permission_default(tool: str) -> str {
 }
 
 fn storage_permission_tool_count() -> i32 {
-    return 9;
+    return 10;
 }
 
 fn storage_permission_tool_at(index: i32) -> str {
     if (index == 0) { return "read"; }
-    if (index == 1) { return "glob"; }
-    if (index == 2) { return "grep"; }
-    if (index == 3) { return "webfetch"; }
-    if (index == 4) { return "edit"; }
-    if (index == 5) { return "write"; }
-    if (index == 6) { return "bash"; }
-    if (index == 7) { return "task"; }
-    if (index == 8) { return "mcp"; }
+    if (index == 1) { return "list_files"; }
+    if (index == 2) { return "glob"; }
+    if (index == 3) { return "grep"; }
+    if (index == 4) { return "webfetch"; }
+    if (index == 5) { return "edit"; }
+    if (index == 6) { return "write"; }
+    if (index == 7) { return "bash"; }
+    if (index == 8) { return "task"; }
+    if (index == 9) { return "mcp"; }
     return "";
 }
 

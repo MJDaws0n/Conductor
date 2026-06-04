@@ -6,6 +6,7 @@ import ../lib/file_io file_io;
 import ../lib/process process;
 import ../src/ai_api;
 import ../src/ai_tools;
+import ../src/commands;
 import ../src/storage;
 
 fn assert_true(ok: bool, name: str) -> i32 {
@@ -34,6 +35,7 @@ fn main() -> i32 {
     failures = failures + assert_true(std.contains(ai_placeholder_response("hello", "", ""), "hello"), "placeholder response echoes prompt");
     failures = failures + assert_true(std.contains(ai_openapi_placeholder(), "Conductor API"), "openapi placeholder title");
     failures = failures + assert_true(storage_permission_exists("bash"), "bash permission exists");
+    failures = failures + assert_true(storage_permission_exists("list_files"), "list_files permission exists");
     failures = failures + assert_true(storage_permission_set("bash", "deny") == 0, "bash permission can be denied");
     failures = failures + assert_true(storage_permission_get("bash") == "deny", "bash permission persists");
     storage_permissions_reset();
@@ -100,6 +102,14 @@ fn main() -> i32 {
     storage_permission_set("bash", "allow");
     let tool_out: str = ai_execute_tool("bash", "echo tool_test");
     failures = failures + assert_true(std.contains(tool_out, "tool_test"), "ai_execute_tool bash works");
+    let list_out: str = ai_execute_tool("list_files", ".");
+    failures = failures + assert_true(std.contains(list_out, "."), "ai_execute_tool list_files works");
+    let json_tool_dir: str = file_io.path_join("/tmp", "conductor-json-tool-" + storage_new_session_id());
+    file_io.mkdirp(json_tool_dir);
+    file_io.write_file(file_io.path_join(json_tool_dir, "marker.txt"), "marker");
+    process_tool_commands_from_response("```json\n[{\"name\":\"list_files\",\"arguments\":{\"path\":\"" + json_tool_dir + "\"}}]\n```");
+    let audit: str = file_io.read_file(file_io.path_join(storage_root(), "audit.log"));
+    failures = failures + assert_true(std.contains(audit, "list_files"), "json list_files tool block executes");
 
     // Skills, MCP registry, role context, and event ledger tests
     let skill_name: str = "skill-" + storage_new_session_id();

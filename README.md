@@ -73,6 +73,7 @@ OPENROUTER_API_KEY="sk_..." ./scripts/live_deepseek_smoke.sh
 ```
 
 Live `run` and `chat` calls stream OpenRouter tokens to the terminal and still save the final response into the local session.
+Conductor also streams public `Thinking:` status lines for long-running local build flows and model calls. Raw hidden chain-of-thought is not exposed.
 
 Provider keys can be configured with Conductor-stored environment values, files, GPG, or OS keyrings:
 
@@ -195,5 +196,6 @@ conductor control compact-auto --role orchestrator
 ## Tools
 
 - AI responses that include lines starting with `TOOL: <tool> <args>` execute allowed tools subject to permissions.
+- AI responses that include fenced JSON tool calls such as `{"name":"list_files","arguments":{"path":"."}}` execute allowed mapped tools.
 - Run tools manually: `conductor tool run bash "ls -la"`.
 - Audit log: `.conductor/audit.log` records tool actions.

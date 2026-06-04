@@ -653,6 +653,14 @@ fn looks_like_todo_build(message: str) -> bool {
     return true;
 }
 
+fn looks_like_portfolio_site_build(message: str) -> bool {
+    let m: str = std.lower(message);
+    if (!(std.contains(m, "portfolio") || std.contains(m, "mjdawson") || std.contains(m, "mjdaws0n"))) { return false; }
+    if (!(std.contains(m, "website") || std.contains(m, "html") || std.contains(m, "css") || std.contains(m, "js"))) { return false; }
+    if (!(std.contains(m, "build") || std.contains(m, "create") || std.contains(m, "make"))) { return false; }
+    return true;
+}
+
 fn looks_like_paste_continuation(line: str) -> bool {
     let l: str = std.lower(std.trim(line));
     if (std.len(l) == 0) { return true; }
@@ -668,6 +676,10 @@ fn looks_like_paste_continuation(line: str) -> bool {
     if (std.starts_with(l, "passwords should")) { return true; }
     if (std.starts_with(l, "and ")) { return true; }
     return false;
+}
+
+fn print_public_thinking(message: str) -> void {
+    std.print("Thinking: " + message);
 }
 
 fn role_turn_record(session_id: str, role: str, task: str, output: str) -> void {
@@ -846,6 +858,83 @@ fn run_orchestrated_todo_build(message: str, model: str, provider: str, session_
     return transcript;
 }
 
+fn run_orchestrated_portfolio_build(message: str, model: str, provider: str, session_id: str) -> str {
+    let target_dir: str = target_dir_from_message(message);
+    let index_path: str = file_io.path_join(target_dir, "index.html");
+    let styles_path: str = file_io.path_join(target_dir, "styles.css");
+    let script_path_local: str = file_io.path_join(target_dir, "script.js");
+    let index_template: str = template_path("portfolio_index.html");
+    let styles_template: str = template_path("portfolio_styles.css");
+    let script_template: str = template_path("portfolio_script.js");
+    let transcript: str = "";
+
+    print_public_thinking("Interpreting the target as a static portfolio site in " + target_dir + ".");
+    let orchestrator_task: str = "Plan role handoffs for the static portfolio website.\n\nOriginal prompt:\n" + message;
+    let orchestrator_out: str = "Target folder: " + target_dir + "\n"
+        + "Routing: Orchestrator -> Code Designer -> Coder -> Reviewer.\n"
+        + "Execution policy: write a single-page HTML/CSS/JS portfolio with tabs and run lightweight static checks.";
+    role_turn_record(session_id, "orchestrator", orchestrator_task, orchestrator_out);
+    print_role_section(role_display_name("orchestrator"), orchestrator_out);
+    transcript = transcript + "Orchestrator:\n" + orchestrator_out + "\n\n";
+
+    print_public_thinking("Designing tabs, sections, and visual treatment before writing files.");
+    let design_task: str = "Design the MJDawson portfolio website files for " + target_dir + ".";
+    orchestrator_handoff(session_id, "code_designer", design_task);
+    let design_out: str = "Files:\n"
+        + "- " + index_path + ": single-page portfolio markup with About, Projects, Skills, and Contact tab panels.\n"
+        + "- " + styles_path + ": responsive dark visual system, cards, tab states, animations, and mobile layout.\n"
+        + "- " + script_path_local + ": tab switching, hash support, and jump buttons.\n"
+        + "Acceptance checks: files exist and index.html references styles.css and script.js.";
+    storage_record_event(session_id, "role_output", "code_designer", design_out);
+    storage_role_append(session_id, "code_designer", "output", design_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("code_designer"), design_out);
+    transcript = transcript + "Code Designer:\n" + design_out + "\n\n";
+
+    print_public_thinking("Writing the website files into the target workspace.");
+    let coder_task: str = "Implement the designed portfolio files in " + target_dir + " using local file writes.";
+    orchestrator_handoff(session_id, "coder", coder_task);
+    let coder_out: str = "";
+    file_io.mkdirp(target_dir);
+    if (!file_io.file_exists(index_template) || !file_io.file_exists(styles_template) || !file_io.file_exists(script_template)) {
+        coder_out = "Cannot write portfolio site because one or more templates are missing.";
+    } else {
+        file_io.file_copy(index_template, index_path);
+        file_io.file_copy(styles_template, styles_path);
+        file_io.file_copy(script_template, script_path_local);
+        coder_out = "Wrote " + index_path + "\n"
+            + "Wrote " + styles_path + "\n"
+            + "Wrote " + script_path_local;
+    }
+    storage_record_event(session_id, "role_output", "coder", coder_out);
+    storage_role_append(session_id, "coder", "output", coder_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("coder"), coder_out);
+    transcript = transcript + "Coder:\n" + coder_out + "\n\n";
+
+    print_public_thinking("Checking that the static site files are present and wired together.");
+    let review_task: str = "Verify the generated portfolio site in " + target_dir + ".";
+    orchestrator_handoff(session_id, "reviewer", review_task);
+    let review_out: str = "";
+    if (file_io.file_exists(index_path) && file_io.file_exists(styles_path) && file_io.file_exists(script_path_local)) {
+        let html: str = file_io.read_file(index_path);
+        if (std.contains(html, "styles.css") && std.contains(html, "script.js")) {
+            review_out = "PASS static site files exist and index.html links styles.css plus script.js.";
+        } else {
+            review_out = "FAIL index.html did not link the generated CSS and JS files.";
+        }
+    } else {
+        review_out = "FAIL one or more portfolio files were not written.";
+    }
+    storage_record_event(session_id, "role_output", "reviewer", review_out);
+    storage_role_append(session_id, "reviewer", "output", review_out);
+    storage_auto_compact_if_needed(session_id);
+    print_role_section(role_display_name("reviewer"), review_out);
+    transcript = transcript + "Reviewer:\n" + review_out + "\n\n";
+    storage_record_event(session_id, "chat_end", "orchestrator", "portfolio build flow complete for " + target_dir);
+    return transcript;
+}
+
 fn command_run(argc: i32, argv: u64) -> i32 {
     storage_init();
     let provider: str = option_value(argc, argv, "--provider", storage_get_active_provider());
@@ -890,8 +979,17 @@ fn command_run(argc: i32, argv: u64) -> i32 {
         ui_kv("session", id);
         return 0;
     }
+    if (looks_like_portfolio_site_build(message)) {
+        response = run_orchestrated_portfolio_build(message, model, provider, id);
+        storage_append_message(id, "assistant", response);
+        storage_increment_runs();
+        std.print("");
+        ui_kv("session", id);
+        return 0;
+    }
     let model_prompt: str = build_agent_prompt(message, agent);
     if (ai_provider_exists(provider)) {
+        print_public_thinking("Streaming model response; executable tool blocks will run after the message.");
         response = ai_run_stream(model_prompt, model, provider);
     } else {
         response = ai_placeholder_response(model_prompt, model, agent);
@@ -1670,9 +1768,26 @@ fn shell_run_message(message: str) -> i32 {
         std.print("session " + id);
         return 1;
     }
+    if (looks_like_portfolio_site_build(message)) {
+        let id: str = storage_get_active_session();
+        if (std.len(std.trim(id)) == 0) {
+            let title: str = message;
+            if (std.len(title) > 48) { title = std.substr_len(title, 0, 48); }
+            id = storage_create_session(title);
+        }
+        storage_record_event(id, "original_prompt", "user", message);
+        storage_append_message(id, "user", message);
+        std.print("Conductor:");
+        response = run_orchestrated_portfolio_build(message, model, provider, id);
+        storage_append_message(id, "assistant", response);
+        storage_increment_runs();
+        std.print("session " + id);
+        return 1;
+    }
     let model_prompt: str = build_agent_prompt(message, agent);
     std.print("Conductor:");
     if (ai_provider_exists(provider)) {
+        print_public_thinking("Streaming model response; executable tool blocks will run after the message.");
         response = ai_run_stream(model_prompt, model, provider);
     } else {
         response = ai_placeholder_response(model_prompt, model, agent);
@@ -1710,8 +1825,42 @@ fn process_bash_blocks_from_response(response: str) -> void {
     }
 }
 
+fn process_json_tool_call_block(block: str) -> void {
+    if (!std.contains(block, "\"name\"")) { return; }
+    let tool: str = mcp_json_string_field(block, "name");
+    if (std.len(std.trim(tool)) == 0) { return; }
+    if (tool == "list_files") {
+        let path: str = mcp_json_string_field(block, "path");
+        execute_response_tool("list_files", path);
+        return;
+    }
+    if (tool == "read_file") {
+        let path2: str = mcp_json_string_field(block, "path");
+        execute_response_tool("read", path2);
+        return;
+    }
+    if (tool == "write_file") {
+        let path3: str = mcp_json_string_field(block, "path");
+        let content: str = mcp_json_string_field(block, "content");
+        execute_response_tool("write", path3 + " " + content);
+        return;
+    }
+}
+
+fn process_json_tool_blocks_from_response(response: str) -> void {
+    let rest: str = response;
+    while (std.contains(rest, "```json")) {
+        let after: str = std.split_rest(rest, "```json");
+        if (!std.contains(after, "```")) { return; }
+        let block: str = std.split_first(after, "```");
+        process_json_tool_call_block(block);
+        rest = std.split_rest(after, "```");
+    }
+}
+
 fn process_tool_commands_from_response(response: str) -> void {
     process_bash_blocks_from_response(response);
+    process_json_tool_blocks_from_response(response);
     let rest: str = response;
     while (std.len(std.trim(rest)) > 0) {
         let line: str = std.split_first(rest, "\n");
