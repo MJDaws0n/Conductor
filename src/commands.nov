@@ -61,6 +61,16 @@ fn script_path(name: str) -> str {
     return local;
 }
 
+fn strip_wrapping_quotes(value: str) -> str {
+    let v: str = std.trim(value);
+    if (std.starts_with(v, "\"")) {
+        let inner: str = std.substr(v, 1);
+        let end_pos: i32 = std.find(inner, "\"");
+        if (end_pos >= 0) { return std.substr_len(inner, 0, end_pos); }
+    }
+    return v;
+}
+
 fn parse_field(content: str, field: str) -> str {
     let prefix: str = field + ":";
     let rest: str = content;
@@ -68,10 +78,189 @@ fn parse_field(content: str, field: str) -> str {
         let line: str = std.trim(std.split_first(rest, "\n"));
         rest = std.split_rest(rest, "\n");
         if (std.starts_with(line, prefix)) {
-            return std.trim(std.substr(line, std.len(prefix)));
+            let value: str = strip_wrapping_quotes(std.substr(line, std.len(prefix)));
+            if (value == ">" || value == "|") {
+                let folded: str = "";
+                let more: str = rest;
+                while (std.len(std.trim(more)) > 0) {
+                    let next_line: str = std.split_first(more, "\n");
+                    more = std.split_rest(more, "\n");
+                    let trimmed_next: str = std.trim(next_line);
+                    if (std.starts_with(trimmed_next, "---")) { return folded; }
+                    if (std.starts_with(next_line, " ") || std.starts_with(next_line, "\t")) {
+                        if (std.len(folded) > 0) { folded = folded + " "; }
+                        folded = folded + trimmed_next;
+                    } else {
+                        return folded;
+                    }
+                }
+                return folded;
+            }
+            return value;
         }
     }
     return "";
+}
+
+fn codex_home_default() -> str {
+    let out: str = std.trim(process.shell_output("printf '%s' \"${CODEX_HOME:-$HOME/.codex}\"", 4096));
+    if (std.len(out) > 0) { return out; }
+    return ".codex";
+}
+
+fn toml_unquote(value: str) -> str {
+    let v: str = std.trim(value);
+    if (std.starts_with(v, "\"")) {
+        let inner: str = std.substr(v, 1);
+        let end_pos: i32 = std.find(inner, "\"");
+        if (end_pos >= 0) {
+            let raw: str = std.substr_len(inner, 0, end_pos);
+            return std.replace(std.replace(std.replace(raw, "\\n", "\n"), "\\t", "\t"), "\\\"", "\"");
+        }
+    }
+    return strip_wrapping_quotes(v);
+}
+
+fn toml_array_to_args(value: str) -> str {
+    let v: str = std.trim(value);
+    if (!std.starts_with(v, "[")) { return ""; }
+    let inner: str = std.substr(v, 1);
+    let close_pos: i32 = std.find(inner, "]");
+    if (close_pos >= 0) { inner = std.substr_len(inner, 0, close_pos); }
+    let rest: str = inner;
+    let out: str = "";
+    while (std.len(std.trim(rest)) > 0) {
+        let item: str = std.trim(std.split_first(rest, ","));
+        rest = std.split_rest(rest, ",");
+        if (std.len(item) > 0) {
+            let arg: str = toml_unquote(item);
+            if (std.len(std.trim(arg)) > 0) {
+                if (std.len(out) > 0) { out = out + " "; }
+                out = out + shell_quote(arg);
+            }
+        }
+        if (!std.contains(rest, ",")) {
+            let last: str = std.trim(rest);
+            if (std.len(last) > 0) {
+                let arg2: str = toml_unquote(last);
+                if (std.len(std.trim(arg2)) > 0) {
+                    if (std.len(out) > 0) { out = out + " "; }
+                    out = out + shell_quote(arg2);
+                }
+            }
+            rest = "";
+        }
+    }
+    return out;
+}
+
+fn skill_name_from_path(path: str) -> str {
+    let parent: str = file_io.path_basename(file_io.path_dir(path));
+    if (std.len(std.trim(parent)) > 0) { return parent; }
+    return file_io.path_stem(file_io.path_basename(path));
+}
+
+fn import_skill_file(path: str) -> i32 {
+    if (!file_io.file_exists(path)) { return 1; }
+    let content: str = file_io.read_file(path);
+    let name: str = parse_field(content, "name");
+    if (std.len(std.trim(name)) == 0) { name = skill_name_from_path(path); }
+    let desc: str = parse_field(content, "description");
+    return storage_skill_register(name, desc, path, content);
+}
+
+fn import_codex_skills(skills_dir: str) -> str {
+    storage_init();
+    let list_path: str = file_io.path_join(storage_root(), "codex-skill-import-files.txt");
+    let cmd: str = "find " + shell_quote(skills_dir) + " -maxdepth 4 -name SKILL.md -type f > " + shell_quote(list_path) + " 2>/dev/null";
+    process.shell_exec(cmd);
+    let files: str = "";
+    if (file_io.file_exists(list_path)) { files = file_io.read_file(list_path); }
+    let rest: str = files;
+    let added: i32 = 0;
+    let skipped: i32 = 0;
+    let missing: i32 = 0;
+    while (std.len(std.trim(rest)) > 0) {
+        let path: str = std.trim(std.split_first(rest, "\n"));
+        rest = std.split_rest(rest, "\n");
+        if (std.len(path) == 0) { continue; }
+        let rc: i32 = import_skill_file(path);
+        if (rc == 0) { added = added + 1; }
+        else if (rc == 2) { skipped = skipped + 1; }
+        else { missing = missing + 1; }
+    }
+    return "skills imported: added=" + std.to_str(added) + " skipped=" + std.to_str(skipped) + " failed=" + std.to_str(missing);
+}
+
+fn import_codex_mcp_config(config_path: str) -> str {
+    if (!file_io.file_exists(config_path)) {
+        return "mcp import failed: config not found: " + config_path;
+    }
+    let content: str = file_io.read_file(config_path);
+    let rest: str = content;
+    let current: str = "";
+    let in_env: bool = false;
+    let command: str = "";
+    let args_text: str = "";
+    let env_text: str = "";
+    let added: i32 = 0;
+    let skipped: i32 = 0;
+
+    while (std.len(rest) > 0) {
+        let raw_line: str = std.split_first(rest, "\n");
+        rest = std.split_rest(rest, "\n");
+        let line: str = std.trim(raw_line);
+        if (std.starts_with(line, "[")) {
+            let next_current: str = "";
+            let next_in_env: bool = false;
+            if (std.starts_with(line, "[mcp_servers.")) {
+                let section: str = std.substr(line, 13);
+                let end_pos: i32 = std.find(section, "]");
+                if (end_pos >= 0) { section = std.substr_len(section, 0, end_pos); }
+                if (std.ends_with(section, ".env")) {
+                    next_current = std.substr_len(section, 0, std.len(section) - 4);
+                    next_in_env = true;
+                } else {
+                    next_current = section;
+                }
+            }
+            if (std.len(current) > 0 && current != next_current) {
+                if (std.len(std.trim(command)) > 0) {
+                    let full: str = env_text + shell_quote(command);
+                    if (std.len(std.trim(args_text)) > 0) { full = full + " " + args_text; }
+                    let rc: i32 = storage_mcp_server_create(current, full);
+                    if (rc == 0) { added = added + 1; }
+                    else if (rc == 2) { skipped = skipped + 1; }
+                }
+            }
+            if (current != next_current) {
+                command = "";
+                args_text = "";
+                env_text = "";
+            }
+            current = next_current;
+            in_env = next_in_env;
+        } else if (std.len(current) > 0 && std.contains(line, "=")) {
+            let key: str = std.trim(std.split_first(line, "="));
+            let value: str = std.trim(std.split_rest(line, "="));
+            if (in_env) {
+                let env_value: str = toml_unquote(value);
+                if (std.len(key) > 0) { env_text = env_text + key + "=" + shell_quote(env_value) + " "; }
+            } else if (key == "command") {
+                command = toml_unquote(value);
+            } else if (key == "args") {
+                args_text = toml_array_to_args(value);
+            }
+        }
+    }
+    if (std.len(current) > 0 && std.len(std.trim(command)) > 0) {
+        let full_last: str = env_text + shell_quote(command);
+        if (std.len(std.trim(args_text)) > 0) { full_last = full_last + " " + args_text; }
+        let rc_last: i32 = storage_mcp_server_create(current, full_last);
+        if (rc_last == 0) { added = added + 1; }
+        else if (rc_last == 2) { skipped = skipped + 1; }
+    }
+    return "mcp imported: added=" + std.to_str(added) + " skipped=" + std.to_str(skipped);
 }
 
 fn mcp_json_escape(value: str) -> str {
@@ -686,6 +875,12 @@ fn command_skill(argc: i32, argv: u64) -> i32 {
         std.print(list);
         return 0;
     }
+    if (sub == "import-codex") {
+        let codex_home: str = option_value(argc, argv, "--codex-home", codex_home_default());
+        let skills_dir: str = option_value(argc, argv, "--skills-dir", file_io.path_join(codex_home, "skills"));
+        std.print(import_codex_skills(skills_dir));
+        return 0;
+    }
     if (sub == "add") {
         if (argc < 4) { ui_error("Usage: conductor skill add <SKILL.md> [--name NAME]"); return 1; }
         let path: str = arg_at(argv, 3);
@@ -696,7 +891,7 @@ fn command_skill(argc: i32, argv: u64) -> i32 {
             name = parse_field(content, "name");
         }
         if (std.len(std.trim(name)) == 0) {
-            name = std.split_first(path, ".");
+            name = skill_name_from_path(path);
         }
         let desc: str = parse_field(content, "description");
         let rc: i32 = storage_skill_register(name, desc, path, content);
@@ -732,7 +927,7 @@ fn command_skill(argc: i32, argv: u64) -> i32 {
         std.print(ctx);
         return 0;
     }
-    ui_error("Usage: conductor skill add|list|show|enable|disable|context");
+    ui_error("Usage: conductor skill add|import-codex|list|show|enable|disable|context");
     return 1;
 }
 
@@ -749,6 +944,12 @@ fn command_mcp(argc: i32, argv: u64) -> i32 {
         let list: str = storage_mcp_server_list();
         if (std.len(std.trim(list)) == 0) { std.print("No MCP servers configured."); return 0; }
         std.print(list);
+        return 0;
+    }
+    if (sub == "import-codex") {
+        let codex_home: str = option_value(argc, argv, "--codex-home", codex_home_default());
+        let config_path: str = option_value(argc, argv, "--config", file_io.path_join(codex_home, "config.toml"));
+        std.print(import_codex_mcp_config(config_path));
         return 0;
     }
     if (sub == "add") {
@@ -819,7 +1020,7 @@ fn command_mcp(argc: i32, argv: u64) -> i32 {
         std.print(process.shell_output(bridge, 65536));
         return 0;
     }
-    ui_error("Usage: conductor mcp add|list|show|remove|tools|resources|prompts|call|serve-conductor");
+    ui_error("Usage: conductor mcp add|import-codex|list|show|remove|tools|resources|prompts|call|serve-conductor");
     return 1;
 }
 

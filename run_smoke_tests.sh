@@ -68,6 +68,20 @@ grep -q "smoke skill context" <<<"$out"
 out="$("$bin" skill disable smoke-skill --home "$home")"
 grep -q "Skill disabled" <<<"$out"
 
+codex_home="$(mktemp -d)"
+mkdir -p "$codex_home/skills/imported-skill"
+cat >"$codex_home/skills/imported-skill/SKILL.md" <<'EOF'
+---
+name: imported-skill
+description: Imported smoke skill
+---
+Imported skill instructions.
+EOF
+out="$("$bin" skill import-codex --codex-home "$codex_home" --home "$home")"
+grep -q "added=1" <<<"$out"
+out="$("$bin" skill context --home "$home")"
+grep -q "Imported skill instructions" <<<"$out"
+
 chmod +x "$repo_root/scripts/mcp_stdio_bridge.py" "$repo_root/scripts/fake_mcp_server.py"
 out="$("$bin" mcp add --name fake --command "python3 $repo_root/scripts/fake_mcp_server.py" --home "$home")"
 grep -q "MCP server added" <<<"$out"
@@ -75,6 +89,18 @@ out="$("$bin" mcp tools fake --home "$home")"
 grep -q "echo" <<<"$out"
 out="$("$bin" mcp call fake echo '{"msg":"hi"}' --home "$home")"
 grep -q "hi" <<<"$out"
+cat >"$codex_home/config.toml" <<EOF
+[mcp_servers.imported_fake]
+command = "python3"
+args = ["$repo_root/scripts/fake_mcp_server.py"]
+
+[mcp_servers.imported_fake.env]
+SMOKE_IMPORT = "1"
+EOF
+out="$("$bin" mcp import-codex --codex-home "$codex_home" --home "$home")"
+grep -q "added=1" <<<"$out"
+out="$("$bin" mcp tools imported_fake --home "$home")"
+grep -q "echo" <<<"$out"
 
 out="$("$bin" orchestrate "control test" --home "$home")"
 grep -q "session:" <<<"$out"

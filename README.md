@@ -83,8 +83,8 @@ conductor agent create|list|use|show|current|delete
 conductor context show|add|file|clear
 conductor env [NAME [VALUE]]
 conductor permission list|allow|deny|ask|reset
-conductor skill add|list|show|enable|disable|context
-conductor mcp add|list|show|remove|tools|resources|prompts|call|serve-conductor
+conductor skill add|import-codex|list|show|enable|disable|context
+conductor mcp add|import-codex|list|show|remove|tools|resources|prompts|call|serve-conductor
 conductor control state|record-decision|ask-user|end-chat|dispatch-role|compact
 conductor session list|delete|resume|cleanup
 conductor config check|path
@@ -130,6 +130,7 @@ Conductor supports Codex-style `SKILL.md` files:
 
 ```sh
 conductor skill add /path/to/SKILL.md
+conductor skill import-codex --codex-home ~/.codex
 conductor skill list
 conductor skill context
 ```
@@ -140,12 +141,15 @@ External MCP wire communication uses a tiny Python stdio bridge because the curr
 
 ```sh
 conductor mcp add --name fake --command "python3 scripts/fake_mcp_server.py"
+conductor mcp import-codex --config ~/.codex/config.toml
 conductor mcp tools fake
 conductor mcp call fake echo '{"msg":"hi"}'
 conductor mcp serve-conductor
 ```
 
 `conductor mcp serve-conductor` runs a Novus stdio MCP server from the Conductor binary. Its tools expose session state, role dispatch, user questions, chat end, compaction, decision logging, and skill activation.
+
+`mcp import-codex` imports `[mcp_servers.NAME]` stdio blocks from Codex config, including `command`, `args`, and `[mcp_servers.NAME.env]` values.
 
 Role controls are policy gated:
 

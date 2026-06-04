@@ -10,11 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import select
-import shlex
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -42,7 +39,8 @@ class McpClient:
     def __init__(self, command: str, timeout_seconds: float) -> None:
         self.timeout_seconds = timeout_seconds
         self.proc = subprocess.Popen(
-            shlex.split(command),
+            command,
+            shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
