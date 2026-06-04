@@ -19,6 +19,7 @@ fn assert_true(ok: bool, name: str) -> i32 {
 
 fn main() -> i32 {
     let failures: i32 = 0;
+    storage_set_home_override(file_io.path_join("/tmp", "conductor-tests-" + storage_new_session_id()));
     storage_env_set("CONDUCTOR_TEST_MODE", "0");
     storage_env_set("CONDUCTOR_OPENROUTER_TEST", "0");
     storage_env_set("OPENROUTER_MOCK", "0");
